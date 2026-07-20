@@ -19,6 +19,7 @@
     "backfill": "npm run backfill --workspace=@pumpnow/indexer",
     "db:generate": "npm run prisma:generate --workspace=@pumpnow/database",
     "db:migrate": "npm run prisma:migrate --workspace=@pumpnow/database",
+    "db:migrate:deploy": "npm run prisma:migrate:deploy --workspace=@pumpnow/database",
     "lint": "turbo lint",
     "typecheck": "turbo typecheck",
     "test": "turbo test",

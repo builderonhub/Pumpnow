@@ -4,7 +4,7 @@ import Redis from 'ioredis';
 import { Subject } from 'rxjs';
 
 export type RealtimeEvent = {
-  type: 'token.created' | 'trade.created' | 'stats.updated';
+  type: 'token.created' | 'token.updated' | 'trade.created' | 'stats.updated';
   tokenAddress?: string;
   transactionHash: string;
   occurredAt: string;

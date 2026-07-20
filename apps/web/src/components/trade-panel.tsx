@@ -38,7 +38,7 @@ export function TradePanel({ tokenAddress, pairAddress, decimals, disabled = fal
 
   async function trade(): Promise<void> {
     setError(undefined); setFinalHash(undefined);
-    if (!isConnected) return setError("Connect your wallet first.");
+    if (!isConnected || !walletAddress) return setError("Connect your wallet first.");
     if (disabled) return setError("Trading is closed because this token has graduated.");
     if (chainId !== pumpNowChain.id) { switchChain({ chainId: pumpNowChain.id }); return; }
     if (!publicClient || !validAddresses || !pairAddress) return setError("Contract addresses are unavailable or invalid.");
@@ -78,6 +78,7 @@ export function TradePanel({ tokenAddress, pairAddress, decimals, disabled = fal
   }
 
   const pending = (phase !== "idle" && !receipt.isSuccess) || receipt.isLoading;
-  const button = !isConnected ? "Connect wallet first" : chainId !== pumpNowChain.id ? "Switch network" : phase === "approving" ? "Approving token…" : phase === "selling" ? "Confirm sell…" : phase === "buying" ? "Confirm buy…" : side === "buy" ? "Buy token" : "Approve & sell";
+  const displayPhase = receipt.isSuccess ? "idle" : phase;
+  const button = !isConnected ? "Connect wallet first" : chainId !== pumpNowChain.id ? "Switch network" : displayPhase === "approving" ? "Approving token…" : displayPhase === "selling" ? "Confirm sell…" : displayPhase === "buying" ? "Confirm buy…" : side === "buy" ? "Buy token" : "Approve & sell";
   return <aside className="panel trade-panel"><span className="kicker">TRADE</span><h2>{disabled ? "Trading closed" : "Buy or sell"}</h2><p>{disabled ? "This token graduated to its DEX pool. Bonding-curve buy and sell are permanently disabled." : "Quotes prepare the transaction; displayed market data comes from the API."}</p><div className="trade-tabs"><button type="button" className={side === "buy" ? "active" : ""} onClick={() => setSide("buy")}>Buy</button><button type="button" className={side === "sell" ? "active" : ""} onClick={() => setSide("sell")}>Sell</button></div><label>Token amount<input inputMode="decimal" placeholder="0.00" value={amount} onChange={(event) => setAmount(event.target.value)} /></label><label>Slippage<select value={slippageBps} onChange={(event) => setSlippageBps(Number(event.target.value))}><option value={50}>0.5%</option><option value={100}>1%</option><option value={300}>3%</option></select></label><button className="primary-button" type="button" disabled={disabled || pending || !validAddresses} onClick={() => void trade()}>{disabled ? "Graduated" : button}</button><TransactionStatus hash={finalHash} pending={pending} label={receipt.isSuccess ? "Confirmed. Refreshing indexed API data." : undefined} error={error ?? (receipt.error?.message.split("\n")[0])} /></aside>;
 }

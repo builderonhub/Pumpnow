@@ -36,11 +36,19 @@ export default function LaunchPage() {
     event.preventDefault();
     if (!pumpFactoryAddress || chainConfigError || !isConnected || chainId !== pumpNowChain.id) return;
     setValidationError(undefined);
+    if (!name.trim()) return setValidationError("Name is required.");
+    if (!/^[A-Za-z0-9]{1,20}$/.test(symbol.trim()))
+      return setValidationError("Symbol must contain 1–20 letters or numbers.");
     const optionalUrls = [imageUrl, websiteUrl, xUrl, telegramUrl].filter(Boolean);
     if (description.trim().length > 1000) return setValidationError("Description must be 1,000 characters or fewer.");
     try { optionalUrls.forEach((value) => { const url = new URL(value); if (url.protocol !== "https:") throw new Error(); }); } catch { return setValidationError("All supplied URLs must be valid HTTPS URLs."); }
     let initialSupply: bigint;
-    try { initialSupply = parseUnits(supply, 18); } catch { return; }
+    try {
+      initialSupply = parseUnits(supply, 18);
+      if (initialSupply <= 0n) throw new Error();
+    } catch {
+      return setValidationError("Initial supply must be a positive number.");
+    }
     write.writeContract({ address: pumpFactoryAddress, abi: pumpFactoryAbi, functionName: "createToken", args: [name.trim(), symbol.trim().toUpperCase(), initialSupply, description.trim(), imageUrl.trim(), websiteUrl.trim(), xUrl.trim(), telegramUrl.trim()], chainId: pumpNowChain.id });
   }
 

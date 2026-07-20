@@ -1,4 +1,16 @@
 services:
+  anvil:
+    image: ghcr.io/foundry-rs/foundry:latest
+    entrypoint: ["anvil"]
+    command: ["--host", "0.0.0.0", "--chain-id", "31337"]
+    ports:
+      - "8545:8545"
+    healthcheck:
+      test: ["CMD", "cast", "block-number", "--rpc-url", "http://localhost:8545"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
   postgres:
     image: postgres:16
     container_name: pumpnow-postgres
@@ -32,6 +44,17 @@ services:
       timeout: 5s
       retries: 10
 
+  migrate:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    restart: "no"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/pumpnow
+    command: npm run db:migrate:deploy
+    depends_on:
+      postgres: { condition: service_healthy }
+
   api:
     build:
       context: .
@@ -44,7 +67,7 @@ services:
       CORS_ORIGINS: http://localhost:3000
     ports: ["3001:3001"]
     depends_on:
-      postgres: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3001/api/health"]
@@ -61,9 +84,15 @@ services:
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/pumpnow
       REDIS_URL: redis://redis:6379
+      RPC_URL: ${RPC_URL}
+      CHAIN_ID: ${CHAIN_ID:-31337}
+      PUMP_FACTORY_ADDRESS: ${PUMP_FACTORY_ADDRESS}
+      INDEXER_START_BLOCK: ${INDEXER_START_BLOCK:-0}
+      INDEXER_CONFIRMATIONS: ${INDEXER_CONFIRMATIONS:-0}
     ports: ["3002:3002"]
     depends_on:
-      postgres: { condition: service_healthy }
+      anvil: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3002/health"]
@@ -75,9 +104,17 @@ services:
     build:
       context: .
       dockerfile: docker/web.Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+        NEXT_PUBLIC_CHAIN_ID: ${NEXT_PUBLIC_CHAIN_ID}
+        NEXT_PUBLIC_CHAIN_NAME: ${NEXT_PUBLIC_CHAIN_NAME}
+        NEXT_PUBLIC_NATIVE_SYMBOL: ${NEXT_PUBLIC_NATIVE_SYMBOL}
+        NEXT_PUBLIC_RPC_URL: ${NEXT_PUBLIC_RPC_URL}
+        NEXT_PUBLIC_BLOCK_EXPLORER_URL: ${NEXT_PUBLIC_BLOCK_EXPLORER_URL}
+        NEXT_PUBLIC_PUMP_FACTORY_ADDRESS: ${NEXT_PUBLIC_PUMP_FACTORY_ADDRESS}
     restart: unless-stopped
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:3001
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
     ports: ["3000:3000"]
     depends_on:
       api: { condition: service_healthy }

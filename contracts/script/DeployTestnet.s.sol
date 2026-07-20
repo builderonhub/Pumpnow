@@ -26,6 +26,8 @@ contract DeployTestnet {
 
         vm.startBroadcast(deployerKey);
         adapter = new MockDexAdapter();
+        // Safe because the explicit bound check above rejects values larger than uint16.
+        // forge-lint: disable-next-line(unsafe-typecast)
         factory = new PumpFactory(uint16(feeBps), basePrice, slope, graduationThreshold, address(adapter));
         vm.stopBroadcast();
     }

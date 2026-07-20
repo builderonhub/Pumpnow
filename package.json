@@ -1,0 +1,29 @@
+{
+  "name": "pumpnow",
+  "version": "0.1.0",
+  "private": true,
+  "description": "PumpNow - Meme launchpad on Arc",
+  "packageManager": "npm@10.9.4",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "build:indexer": "turbo build --filter=@pumpnow/indexer",
+    "build:api": "turbo build --filter=@pumpnow/api",
+    "start:api": "npm run start:dev --workspace=@pumpnow/api",
+    "test:api": "npm run test --workspace=@pumpnow/api",
+    "start:indexer": "npm run start:indexer --workspace=@pumpnow/indexer",
+    "backfill": "npm run backfill --workspace=@pumpnow/indexer",
+    "db:generate": "npm run prisma:generate --workspace=@pumpnow/database",
+    "db:migrate": "npm run prisma:migrate --workspace=@pumpnow/database",
+    "lint": "turbo lint",
+    "test": "turbo test",
+    "clean": "turbo clean"
+  },
+  "devDependencies": {
+    "turbo": "^2.10.5"
+  }
+}

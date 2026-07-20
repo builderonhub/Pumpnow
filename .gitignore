@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+.npm-cache/
+
+# Environment variables
+.env
+.env.local
+.env.development
+.env.production
+.env.test
+!.env.example
+
+# Build output and caches
+.next/
+.turbo/
+dist/
+out/
+coverage/
+packages/database/dist/
+
+# Foundry output (for the future contracts workspace)
+contracts/out/
+contracts/cache/
+contracts/broadcast/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Operating systems and editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/settings.json

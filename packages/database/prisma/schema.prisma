@@ -1,0 +1,257 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum TradeSide {
+  BUY
+  SELL
+}
+
+enum TokenStatus {
+  BONDING
+  GRADUATING
+  GRADUATED
+}
+
+enum LiquidityPoolStatus {
+  PENDING
+  ACTIVE
+  INACTIVE
+}
+
+enum FeeType {
+  TOKEN_CREATION
+  TRADE
+  GRADUATION
+}
+
+model Wallet {
+  address       String       @id @db.VarChar(42)
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+  createdTokens Token[]
+  trades        Trade[]
+  holdings      Holder[]
+  fees          FeeHistory[]
+
+  @@map("wallets")
+}
+
+model Token {
+  address              String         @id @db.VarChar(42)
+  creatorAddress       String         @map("creator_address") @db.VarChar(42)
+  name                 String         @db.VarChar(100)
+  symbol               String         @db.VarChar(20)
+  decimals             Int            @default(18) @db.SmallInt
+  description          String?        @db.Text
+  logoUrl              String?        @map("logo_url") @db.Text
+  websiteUrl           String?        @map("website_url") @db.Text
+  xUrl                 String?        @map("x_url") @db.Text
+  telegramUrl          String?        @map("telegram_url") @db.Text
+  status               TokenStatus    @default(BONDING)
+  totalSupply          Decimal        @map("total_supply") @db.Decimal(78, 0)
+  circulatingSupply    Decimal        @default(0) @map("circulating_supply") @db.Decimal(78, 0)
+  marketCap            Decimal        @default(0) @map("market_cap") @db.Decimal(38, 18)
+  price                Decimal        @default(0) @db.Decimal(38, 18)
+  volume24h            Decimal        @default(0) @map("volume_24h") @db.Decimal(38, 18)
+  totalVolume          Decimal        @default(0) @map("total_volume") @db.Decimal(38, 18)
+  holderCount          Int            @default(0) @map("holder_count")
+  tradeCount           Int            @default(0) @map("trade_count")
+  bondingCurveProgress Decimal        @default(0) @map("bonding_curve_progress") @db.Decimal(7, 4)
+  creationBlockNumber  BigInt         @map("creation_block_number")
+  creationTxHash       String         @unique @map("creation_tx_hash") @db.VarChar(66)
+  createdAt            DateTime       @map("created_at")
+  updatedAt            DateTime       @updatedAt @map("updated_at")
+  graduatedAt          DateTime?      @map("graduated_at")
+  creator              Wallet         @relation(fields: [creatorAddress], references: [address], onDelete: Restrict)
+  trades               Trade[]
+  holders              Holder[]
+  liquidityPool        LiquidityPool?
+  candles1m            Candle1m[]
+  candles5m            Candle5m[]
+  candles1h            Candle1h[]
+  fees                 FeeHistory[]
+
+  @@index([creatorAddress, createdAt(sort: Desc)])
+  @@index([status, createdAt(sort: Desc)])
+  @@index([status, volume24h(sort: Desc)])
+  @@index([status, marketCap(sort: Desc)])
+  @@index([graduatedAt(sort: Desc)])
+  @@index([symbol])
+  @@map("tokens")
+}
+
+model Trade {
+  id              BigInt    @id @default(autoincrement())
+  transactionHash String    @map("transaction_hash") @db.VarChar(66)
+  logIndex        Int       @map("log_index")
+  tokenAddress    String    @map("token_address") @db.VarChar(42)
+  walletAddress   String    @map("wallet_address") @db.VarChar(42)
+  side            TradeSide
+  tokenAmount     Decimal   @map("token_amount") @db.Decimal(78, 0)
+  quoteAmount     Decimal   @map("quote_amount") @db.Decimal(78, 0)
+  feeAmount       Decimal   @default(0) @map("fee_amount") @db.Decimal(78, 0)
+  price           Decimal   @db.Decimal(38, 18)
+  marketCap       Decimal   @map("market_cap") @db.Decimal(38, 18)
+  blockNumber     BigInt    @map("block_number")
+  blockTimestamp  DateTime  @map("block_timestamp")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  token           Token     @relation(fields: [tokenAddress], references: [address], onDelete: Restrict)
+  wallet          Wallet    @relation(fields: [walletAddress], references: [address], onDelete: Restrict)
+
+  @@unique([transactionHash, logIndex])
+  @@index([tokenAddress, blockTimestamp(sort: Desc)])
+  @@index([tokenAddress, side, blockTimestamp(sort: Desc)])
+  @@index([walletAddress, blockTimestamp(sort: Desc)])
+  @@index([blockNumber])
+  @@map("trades")
+}
+
+model Holder {
+  tokenAddress  String   @map("token_address") @db.VarChar(42)
+  walletAddress String   @map("wallet_address") @db.VarChar(42)
+  balance       Decimal  @db.Decimal(78, 0)
+  ownershipBps  Int      @default(0) @map("ownership_bps")
+  firstSeenAt   DateTime @map("first_seen_at")
+  lastUpdatedAt DateTime @updatedAt @map("last_updated_at")
+  token         Token    @relation(fields: [tokenAddress], references: [address], onDelete: Cascade)
+  wallet        Wallet   @relation(fields: [walletAddress], references: [address], onDelete: Cascade)
+
+  @@id([tokenAddress, walletAddress])
+  @@index([tokenAddress, balance(sort: Desc)])
+  @@index([walletAddress, lastUpdatedAt(sort: Desc)])
+  @@map("holders")
+}
+
+model LiquidityPool {
+  address               String              @id @db.VarChar(42)
+  tokenAddress          String              @unique @map("token_address") @db.VarChar(42)
+  quoteTokenAddress     String              @map("quote_token_address") @db.VarChar(42)
+  dex                   String              @db.VarChar(50)
+  status                LiquidityPoolStatus @default(PENDING)
+  tokenReserve          Decimal             @default(0) @map("token_reserve") @db.Decimal(78, 0)
+  quoteReserve          Decimal             @default(0) @map("quote_reserve") @db.Decimal(78, 0)
+  liquidity             Decimal             @default(0) @db.Decimal(38, 18)
+  graduationTxHash      String?             @unique @map("graduation_tx_hash") @db.VarChar(66)
+  graduationBlockNumber BigInt?             @map("graduation_block_number")
+  createdAt             DateTime            @map("created_at")
+  updatedAt             DateTime            @updatedAt @map("updated_at")
+  token                 Token               @relation(fields: [tokenAddress], references: [address], onDelete: Restrict)
+
+  @@index([status, liquidity(sort: Desc)])
+  @@map("liquidity_pools")
+}
+
+model IndexedEvent {
+  transactionHash String   @map("transaction_hash") @db.VarChar(66)
+  logIndex        Int      @map("log_index")
+  blockNumber     BigInt   @map("block_number")
+  blockHash       String   @map("block_hash") @db.VarChar(66)
+  eventName       String   @map("event_name") @db.VarChar(50)
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@id([transactionHash, logIndex])
+  @@index([blockNumber])
+  @@map("indexed_events")
+}
+
+model Candle1m {
+  tokenAddress String   @map("token_address") @db.VarChar(42)
+  openTime     DateTime @map("open_time")
+  open         Decimal  @db.Decimal(38, 18)
+  high         Decimal  @db.Decimal(38, 18)
+  low          Decimal  @db.Decimal(38, 18)
+  close        Decimal  @db.Decimal(38, 18)
+  volume       Decimal  @db.Decimal(38, 18)
+  tradeCount   Int      @default(0) @map("trade_count")
+  token        Token    @relation(fields: [tokenAddress], references: [address], onDelete: Cascade)
+
+  @@id([tokenAddress, openTime])
+  @@index([openTime])
+  @@map("candles_1m")
+}
+
+model Candle5m {
+  tokenAddress String   @map("token_address") @db.VarChar(42)
+  openTime     DateTime @map("open_time")
+  open         Decimal  @db.Decimal(38, 18)
+  high         Decimal  @db.Decimal(38, 18)
+  low          Decimal  @db.Decimal(38, 18)
+  close        Decimal  @db.Decimal(38, 18)
+  volume       Decimal  @db.Decimal(38, 18)
+  tradeCount   Int      @default(0) @map("trade_count")
+  token        Token    @relation(fields: [tokenAddress], references: [address], onDelete: Cascade)
+
+  @@id([tokenAddress, openTime])
+  @@index([openTime])
+  @@map("candles_5m")
+}
+
+model Candle1h {
+  tokenAddress String   @map("token_address") @db.VarChar(42)
+  openTime     DateTime @map("open_time")
+  open         Decimal  @db.Decimal(38, 18)
+  high         Decimal  @db.Decimal(38, 18)
+  low          Decimal  @db.Decimal(38, 18)
+  close        Decimal  @db.Decimal(38, 18)
+  volume       Decimal  @db.Decimal(38, 18)
+  tradeCount   Int      @default(0) @map("trade_count")
+  token        Token    @relation(fields: [tokenAddress], references: [address], onDelete: Cascade)
+
+  @@id([tokenAddress, openTime])
+  @@index([openTime])
+  @@map("candles_1h")
+}
+
+model IndexerState {
+  key             String   @id @db.VarChar(100)
+  chainId         BigInt   @map("chain_id")
+  lastBlockNumber BigInt   @map("last_block_number")
+  lastBlockHash   String?  @map("last_block_hash") @db.VarChar(66)
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@index([chainId])
+  @@map("indexer_states")
+}
+
+model PlatformStats {
+  chainId         BigInt   @id @map("chain_id")
+  totalTokens     Int      @default(0) @map("total_tokens")
+  bondingTokens   Int      @default(0) @map("bonding_tokens")
+  graduatedTokens Int      @default(0) @map("graduated_tokens")
+  totalTrades     BigInt   @default(0) @map("total_trades")
+  totalVolume     Decimal  @default(0) @map("total_volume") @db.Decimal(38, 18)
+  volume24h       Decimal  @default(0) @map("volume_24h") @db.Decimal(38, 18)
+  totalFees       Decimal  @default(0) @map("total_fees") @db.Decimal(38, 18)
+  uniqueTraders   Int      @default(0) @map("unique_traders")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@map("platform_stats")
+}
+
+model FeeHistory {
+  id              BigInt   @id @default(autoincrement())
+  transactionHash String   @map("transaction_hash") @db.VarChar(66)
+  logIndex        Int      @map("log_index")
+  tokenAddress    String?  @map("token_address") @db.VarChar(42)
+  payerAddress    String   @map("payer_address") @db.VarChar(42)
+  type            FeeType
+  amount          Decimal  @db.Decimal(78, 0)
+  blockNumber     BigInt   @map("block_number")
+  blockTimestamp  DateTime @map("block_timestamp")
+  createdAt       DateTime @default(now()) @map("created_at")
+  token           Token?   @relation(fields: [tokenAddress], references: [address], onDelete: SetNull)
+  payer           Wallet   @relation(fields: [payerAddress], references: [address], onDelete: Restrict)
+
+  @@unique([transactionHash, logIndex])
+  @@index([tokenAddress, blockTimestamp(sort: Desc)])
+  @@index([payerAddress, blockTimestamp(sort: Desc)])
+  @@index([type, blockTimestamp(sort: Desc)])
+  @@index([blockNumber])
+  @@map("fee_history")
+}

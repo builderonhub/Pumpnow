@@ -11,6 +11,10 @@ export class RedisLockService {
     return this.redis.setIfAbsent(key, this.token, ttlMs);
   }
 
+  async isActive(key: string): Promise<boolean> {
+    return this.redis.exists(key);
+  }
+
   async refresh(key: string, ttlMs: number): Promise<boolean> {
     return this.redis.refreshLock(key, this.token, ttlMs);
   }

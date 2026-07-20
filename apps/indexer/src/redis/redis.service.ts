@@ -43,6 +43,11 @@ export class RedisService implements OnModuleDestroy {
     return (await client.set(key, value, "PX", ttlMs, "NX")) === "OK";
   }
 
+  async exists(key: string): Promise<boolean> {
+    const client = await this.connected();
+    return (await client.exists(key)) === 1;
+  }
+
   async refreshLock(
     key: string,
     value: string,

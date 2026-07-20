@@ -54,6 +54,7 @@ describe("IndexerRunnerService", () => {
   const processor = { process: jest.fn(async () => "processed" as const) };
   const lock = {
     acquire: jest.fn(async () => true),
+    isActive: jest.fn(async () => false),
     refresh: jest.fn(async () => true),
     release: jest.fn(async () => undefined),
   };
@@ -111,6 +112,13 @@ describe("IndexerRunnerService", () => {
     expect(logger.info).toHaveBeenCalledWith(
       "indexer.lock_unavailable",
       expect.objectContaining({ chainId: "5042002" }),
+    );
+  });
+
+  it("reports the distributed leader as running", async () => {
+    lock.isActive.mockResolvedValueOnce(true);
+    await expect(makeRunner().health()).resolves.toEqual(
+      expect.objectContaining({ running: true }),
     );
   });
 });

@@ -59,13 +59,16 @@ export class IndexerRunnerService
     await this.lock.release(this.lockKey);
   }
   async health(): Promise<IndexerHealth> {
-    const state = await this.prisma.indexerState.findUnique({
-      where: { key: this.stateKey },
-    });
+    const [state, activeLease] = await Promise.all([
+      this.prisma.indexerState.findUnique({ where: { key: this.stateKey } }),
+      this.lock.isActive(this.lockKey),
+    ]);
     return {
       latestIndexedBlock: state?.lastBlockNumber ?? null,
       latestChainBlock: this.latestChainBlock,
-      running: this.running,
+      // The Redis lease is the source of truth when multiple replicas or
+      // multiple Nest module contexts compete to become the single leader.
+      running: this.running || activeLease,
       mode: this.mode,
     };
   }

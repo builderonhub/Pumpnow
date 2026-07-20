@@ -103,4 +103,14 @@ describe("IndexerRunnerService", () => {
     await expect(makeRunner().syncOnce()).rejects.toThrow("Reorg detected");
     expect(source.logs).not.toHaveBeenCalled();
   });
+
+  it("does not start a backfill worker when its distributed lock is unavailable", async () => {
+    lock.acquire.mockResolvedValueOnce(false);
+    await makeRunner().run();
+    expect(source.latestBlock).not.toHaveBeenCalled();
+    expect(logger.info).toHaveBeenCalledWith(
+      "indexer.lock_unavailable",
+      expect.objectContaining({ chainId: "5042002" }),
+    );
+  });
 });

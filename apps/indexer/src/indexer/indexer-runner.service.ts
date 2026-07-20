@@ -72,10 +72,15 @@ export class IndexerRunnerService
 
   async run(): Promise<void> {
     if (this.running) return;
-    if (!(await this.lock.acquire(this.lockKey, this.lockTtlMs))) {
+    while (!(await this.lock.acquire(this.lockKey, this.lockTtlMs))) {
       this.logger.info("indexer.lock_unavailable", {
         chainId: this.source.chainId.toString(),
       });
+      if (this.mode === "backfill" || this.stopped) return;
+      await delay(this.pollMs);
+    }
+    if (this.stopped) {
+      await this.lock.release(this.lockKey);
       return;
     }
     this.running = true;

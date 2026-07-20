@@ -3,7 +3,6 @@ import { ConfigModule } from "@nestjs/config";
 import { DatabaseModule } from "./database/database.module";
 import { HealthModule } from "./health/health.module";
 import { RedisModule } from "./redis/redis.module";
-import { IndexerModule } from "./indexer/indexer.module";
 import { validateEnvironment } from "./config/env.validation";
 
 @Module({
@@ -15,7 +14,6 @@ import { validateEnvironment } from "./config/env.validation";
     }),
     DatabaseModule,
     RedisModule,
-    IndexerModule,
     HealthModule,
   ],
 })

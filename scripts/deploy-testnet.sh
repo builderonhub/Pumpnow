@@ -28,5 +28,13 @@ forge script script/DeployTestnet.s.sol:DeployTestnet \
   --broadcast
 
 cd "$ROOT_DIR"
-node scripts/sync-testnet-deployment.mjs
-node --env-file=.env.testnet scripts/testnet-preflight.mjs
+if command -v node >/dev/null; then
+  NODE_BIN=node
+elif command -v node.exe >/dev/null; then
+  NODE_BIN=node.exe
+else
+  printf 'Deployment succeeded, but Node.js is unavailable in WSL. Run the sync and preflight scripts from Windows.\n' >&2
+  exit 2
+fi
+"$NODE_BIN" scripts/sync-testnet-deployment.mjs
+"$NODE_BIN" --env-file=.env.testnet scripts/testnet-preflight.mjs

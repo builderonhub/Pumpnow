@@ -72,11 +72,15 @@ export class BlockchainSourceService {
         }) as AbiEvent,
       },
     ];
-    const groups = await Promise.all(
-      events.map(({ address, event }) =>
-        this.client.getLogs({ address, event, fromBlock, toBlock }),
-      ),
-    );
+    // Public RPC endpoints commonly throttle concurrent eth_getLogs calls.
+    // Fetch each event type sequentially so one polling cycle does not create
+    // a burst of requests and repeatedly discard an otherwise valid range.
+    const groups: Log[][] = [];
+    for (const { address, event } of events) {
+      groups.push(
+        await this.client.getLogs({ address, event, fromBlock, toBlock }),
+      );
+    }
     const raw = groups
       .flat()
       .sort(

@@ -35,7 +35,10 @@ export class HealthController {
     if (
       postgres.status === "rejected" ||
       redis.status === "rejected" ||
-      indexer.status === "rejected"
+      indexer.status === "rejected" ||
+      (indexer.status === "fulfilled" &&
+        indexer.value.mode === "live" &&
+        !indexer.value.running)
     ) {
       throw new ServiceUnavailableException({
         status: "error",
@@ -43,7 +46,10 @@ export class HealthController {
         checks: {
           postgres: postgres.status === "fulfilled" ? "up" : "down",
           redis: redis.status === "fulfilled" ? "up" : "down",
-          indexer: indexer.status === "fulfilled" ? "up" : "down",
+          indexer:
+            indexer.status === "fulfilled" && indexer.value.running
+              ? "up"
+              : "down",
         },
         timestamp: new Date().toISOString(),
       });

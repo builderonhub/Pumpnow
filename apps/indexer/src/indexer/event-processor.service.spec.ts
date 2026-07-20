@@ -5,6 +5,8 @@ import { PrismaService } from "../database/prisma.service";
 import {
   candleOpenTime,
   EventProcessorService,
+  nativeAmount,
+  tokenMarketCap,
 } from "./event-processor.service";
 import type { IndexedLog } from "./indexer.types";
 import { RedisService } from "../redis/redis.service";
@@ -142,5 +144,13 @@ describe("EventProcessorService", () => {
     expect(candleOpenTime(timestamp, 3_600_000).toISOString()).toBe(
       "2026-07-20T01:00:00.000Z",
     );
+  });
+
+  it("normalizes native amounts and market cap to whole-token units", () => {
+    const price = new Prisma.Decimal("0.000001");
+    const supply = new Prisma.Decimal("1000000000000000000000000000");
+
+    expect(nativeAmount(1_500_000_000_000_000_000n).toString()).toBe("1.5");
+    expect(tokenMarketCap(price, supply).toString()).toBe("1000");
   });
 });

@@ -12,8 +12,15 @@ import { RedisService } from "../redis/redis.service";
 import type { RealtimeEvent } from "../redis/redis.service";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+const WAD = new Prisma.Decimal("1000000000000000000");
 export const candleOpenTime = (timestamp: Date, intervalMs: number): Date =>
   new Date(Math.floor(timestamp.getTime() / intervalMs) * intervalMs);
+export const nativeAmount = (rawAmount: bigint): Prisma.Decimal =>
+  new Prisma.Decimal(rawAmount.toString()).div(WAD);
+export const tokenMarketCap = (
+  price: Prisma.Decimal,
+  rawSupply: Prisma.Decimal,
+): Prisma.Decimal => price.mul(rawSupply).div(WAD);
 
 @Injectable()
 export class EventProcessorService {
@@ -232,7 +239,8 @@ export class EventProcessorService {
       },
       update: { balance: next.toString(), ownershipBps },
     });
-    const marketCap = price.mul(token.totalSupply);
+    const marketCap = tokenMarketCap(price, token.totalSupply);
+    const volume = nativeAmount(quoteAmount);
     const progress = Prisma.Decimal.min(
       new Prisma.Decimal(100),
       new Prisma.Decimal(log.args.nativeReserve.toString())
@@ -260,14 +268,15 @@ export class EventProcessorService {
       tokenAddress,
       log.blockTimestamp,
       price,
-      new Prisma.Decimal(quoteAmount.toString()),
+      volume,
     );
     await tx.token.update({
       where: { address: tokenAddress },
       data: {
         price,
         marketCap,
-        totalVolume: { increment: quoteAmount.toString() },
+        volume24h: { increment: volume },
+        totalVolume: { increment: volume },
         tradeCount: { increment: 1 },
         holderCount: { increment: holderDelta },
         bondingCurveProgress: progress,
@@ -301,12 +310,14 @@ export class EventProcessorService {
       create: {
         chainId,
         totalTrades: 1n,
-        totalVolume: quoteAmount.toString(),
+        totalVolume: volume,
+        volume24h: volume,
         uniqueTraders: 1,
       },
       update: {
         totalTrades: { increment: 1 },
-        totalVolume: { increment: quoteAmount.toString() },
+        totalVolume: { increment: volume },
+        volume24h: { increment: volume },
         uniqueTraders: { increment: priorTrades === 0 ? 1 : 0 },
       },
     });
@@ -347,6 +358,7 @@ export class EventProcessorService {
   ): Promise<void> {
     const payer = log.args.payer.toLowerCase();
     const token = log.args.token.toLowerCase();
+    const fee = nativeAmount(log.args.amount);
     await this.wallet(tx, payer);
     await tx.feeHistory.create({
       data: {
@@ -362,8 +374,8 @@ export class EventProcessorService {
     });
     await tx.platformStats.upsert({
       where: { chainId },
-      create: { chainId, totalFees: log.args.amount.toString() },
-      update: { totalFees: { increment: log.args.amount.toString() } },
+      create: { chainId, totalFees: fee },
+      update: { totalFees: { increment: fee } },
     });
   }
 
@@ -395,7 +407,7 @@ export class EventProcessorService {
         status: LiquidityPoolStatus.ACTIVE,
         tokenReserve: log.args.tokenLiquidity.toString(),
         quoteReserve: log.args.nativeLiquidity.toString(),
-        liquidity: log.args.nativeLiquidity.toString(),
+        liquidity: nativeAmount(log.args.nativeLiquidity),
         graduationTxHash: log.transactionHash.toLowerCase(),
         graduationBlockNumber: log.blockNumber,
       },

@@ -85,7 +85,12 @@ export class IndexerRunnerService
     });
     try {
       do {
-        await this.syncOnce();
+        try {
+          await this.syncOnce();
+        } catch (error) {
+          this.logger.error("indexer.sync_failed", error);
+          if (this.mode === "backfill") throw error;
+        }
         if (this.mode === "backfill") break;
         await delay(this.pollMs);
       } while (!this.stopped);

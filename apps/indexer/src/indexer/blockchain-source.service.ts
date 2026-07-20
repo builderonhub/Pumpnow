@@ -17,6 +17,8 @@ import { AbiLoader } from "./abi.loader";
 import type { IndexedLog } from "./indexer.types";
 
 type Args = Record<string, unknown>;
+const wait = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
 
 @Injectable()
 export class BlockchainSourceService {
@@ -51,7 +53,7 @@ export class BlockchainSourceService {
 
   async logs(fromBlock: bigint, toBlock: bigint): Promise<IndexedLog[]> {
     const treasuryAddress = await this.getTreasuryAddress();
-    const events = [
+    const events: Array<{ address?: Address; event: AbiEvent }> = [
       {
         address: this.factoryAddress,
         event: getAbiItem({
@@ -72,13 +74,14 @@ export class BlockchainSourceService {
         }) as AbiEvent,
       },
     ];
-    // Public RPC endpoints commonly throttle concurrent eth_getLogs calls.
-    // Fetch each event type sequentially so one polling cycle does not create
-    // a burst of requests and repeatedly discard an otherwise valid range.
+    // Arc's public RPC does not reliably support OR-ed event topics and also
+    // rate-limits bursts. Retry each event independently and pace requests so
+    // progress on earlier event types is not discarded by a later throttle.
     const groups: Log[][] = [];
-    for (const { address, event } of events) {
+    for (const [index, { address, event }] of events.entries()) {
+      if (index > 0) await wait(750);
       groups.push(
-        await this.client.getLogs({ address, event, fromBlock, toBlock }),
+        await this.getLogsWithRetry(address, event, fromBlock, toBlock),
       );
     }
     const raw = groups
@@ -106,9 +109,43 @@ export class BlockchainSourceService {
         timestamp = new Date(Number(block.timestamp) * 1000);
         timestamps.set(log.blockNumber, timestamp);
       }
-      output.push(this.decode(log, timestamp));
+      const decoded = this.decode(log, timestamp);
+      if (
+        decoded.eventName === "TokenCreated" &&
+        decoded.address.toLowerCase() !== this.factoryAddress.toLowerCase()
+      )
+        continue;
+      if (
+        decoded.eventName === "FeeCollected" &&
+        decoded.address.toLowerCase() !== treasuryAddress.toLowerCase()
+      )
+        continue;
+      output.push(decoded);
     }
     return output;
+  }
+
+  private async getLogsWithRetry(
+    address: Address | undefined,
+    event: AbiEvent,
+    fromBlock: bigint,
+    toBlock: bigint,
+  ): Promise<Log[]> {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      try {
+        return await this.client.getLogs({
+          address,
+          event,
+          fromBlock,
+          toBlock,
+        });
+      } catch (error) {
+        lastError = error;
+        if (attempt < 7) await wait(Math.min(15_000, 1_000 * 2 ** attempt));
+      }
+    }
+    throw lastError;
   }
 
   private async getTreasuryAddress(): Promise<Address> {

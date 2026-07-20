@@ -63,6 +63,7 @@ model Token {
   holderCount          Int            @default(0) @map("holder_count")
   tradeCount           Int            @default(0) @map("trade_count")
   bondingCurveProgress Decimal        @default(0) @map("bonding_curve_progress") @db.Decimal(7, 4)
+  graduationThreshold  Decimal        @map("graduation_threshold") @db.Decimal(78, 0)
   creationBlockNumber  BigInt         @map("creation_block_number")
   creationTxHash       String         @unique @map("creation_tx_hash") @db.VarChar(66)
   createdAt            DateTime       @map("created_at")

@@ -4,6 +4,7 @@ import { AddressParamDto } from '../common/dto/address-param.dto';
 import { ListTokenChildrenDto } from './dto/list-token-children.dto';
 import { ListTokensDto } from './dto/list-tokens.dto';
 import { TokensService } from './tokens.service';
+import { ListCandlesDto } from './dto/list-candles.dto';
 
 @ApiTags('tokens')
 @Controller('tokens')
@@ -34,5 +35,10 @@ export class TokensController {
     @Query() query: ListTokenChildrenDto,
   ) {
     return this.tokens.holders(params.address, query);
+  }
+  @Get(':address/candles')
+  @ApiOperation({ summary: 'Get token OHLCV candles' })
+  candles(@Param() params: AddressParamDto, @Query() query: ListCandlesDto) {
+    return this.tokens.candles(params.address, query);
   }
 }

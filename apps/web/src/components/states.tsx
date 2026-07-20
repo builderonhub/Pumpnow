@@ -1,0 +1,2 @@
+export function LoadingGrid({ count = 6 }: { count?: number }) { return <div className="token-grid" aria-label="Loading tokens">{Array.from({ length: count }, (_, index) => <div className="token-card skeleton" key={index} />)}</div>; }
+export function StatePanel({ title, message, action }: { title: string; message: string; action?: React.ReactNode }) { return <div className="notice"><b>{title}</b><span>{message}</span>{action}</div>; }

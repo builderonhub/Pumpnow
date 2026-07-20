@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@pumpnow/database';
 import { PrismaService } from '../database/prisma.service';
@@ -7,6 +11,7 @@ import { ListTokensDto, TokenSort } from './dto/list-tokens.dto';
 import { ListTokenChildrenDto } from './dto/list-token-children.dto';
 import type { PaginatedResponse, TokenSummaryResponse } from './tokens.types';
 import { serializeValue } from '../common/serialization';
+import { CandleInterval, ListCandlesDto } from './dto/list-candles.dto';
 
 @Injectable()
 export class TokensService {
@@ -122,6 +127,37 @@ export class TokensService {
         totalPages: Math.ceil(total / query.limit),
       },
     }) as PaginatedResponse<Record<string, unknown>>;
+  }
+
+  async candles(
+    address: string,
+    query: ListCandlesDto,
+  ): Promise<Record<string, unknown>[]> {
+    await this.ensureToken(address);
+    if (query.from && query.to && query.from > query.to)
+      throw new BadRequestException('from must be before to');
+    const version = await this.redis.getVersion('candles');
+    const key = `api:candles:v${version}:${address}:${query.interval}:${query.from?.toISOString() ?? ''}:${query.to?.toISOString() ?? ''}:${query.limit}`;
+    const cached = await this.redis.getJson<Record<string, unknown>[]>(key);
+    if (cached) return cached;
+    const where = {
+      tokenAddress: address,
+      openTime: { gte: query.from, lte: query.to },
+    };
+    const args = {
+      where,
+      orderBy: { openTime: 'desc' as const },
+      take: query.limit,
+    };
+    const rows =
+      query.interval === CandleInterval.ONE_MINUTE
+        ? await this.prisma.candle1m.findMany(args)
+        : query.interval === CandleInterval.FIVE_MINUTES
+          ? await this.prisma.candle5m.findMany(args)
+          : await this.prisma.candle1h.findMany(args);
+    const result = serializeValue(rows.reverse()) as Record<string, unknown>[];
+    await this.redis.setJson(key, result, this.ttl);
+    return result;
   }
 
   private async ensureToken(address: string): Promise<void> {

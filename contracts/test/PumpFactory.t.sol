@@ -26,6 +26,12 @@ interface Vm {
     function getRecordedLogs() external returns (Log[] memory logs);
 }
 
+contract RejectNative {
+    receive() external payable {
+        revert("reject native");
+    }
+}
+
 contract PumpFactoryTest {
     Vm private constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
     uint16 private constant FEE_BPS = 100;
@@ -48,7 +54,13 @@ contract PumpFactoryTest {
         address indexed creator,
         string name,
         string symbol,
-        uint256 initialSupply
+        uint256 initialSupply,
+        uint256 graduationThreshold,
+        string description,
+        string imageUrl,
+        string websiteUrl,
+        string xUrl,
+        string telegramUrl
     );
 
     function setUp() public {
@@ -56,7 +68,8 @@ contract PumpFactoryTest {
         factory = new PumpFactory(FEE_BPS, BASE_PRICE, SLOPE, GRADUATION_THRESHOLD, address(adapter));
         treasury = factory.treasury();
         vm.prank(CREATOR);
-        (address tokenAddress, address pairAddress) = factory.createToken("Pump Now", "NOW", INITIAL_SUPPLY);
+        (address tokenAddress, address pairAddress) =
+            factory.createToken("Pump Now", "NOW", INITIAL_SUPPLY, "", "", "", "", "");
         token = MemeToken(tokenAddress);
         pair = PumpPair(pairAddress);
         vm.deal(TRADER, 100 ether);
@@ -83,9 +96,22 @@ contract PumpFactoryTest {
         address expectedPair = computeCreateAddress(address(freshFactory), 3);
 
         vm.expectEmit(true, true, true, true);
-        emit TokenCreated(expectedToken, expectedPair, CREATOR, "Other", "OTH", INITIAL_SUPPLY);
+        emit TokenCreated(
+            expectedToken,
+            expectedPair,
+            CREATOR,
+            "Other",
+            "OTH",
+            INITIAL_SUPPLY,
+            GRADUATION_THRESHOLD,
+            "",
+            "",
+            "",
+            "",
+            ""
+        );
         vm.prank(CREATOR);
-        freshFactory.createToken("Other", "OTH", INITIAL_SUPPLY);
+        freshFactory.createToken("Other", "OTH", INITIAL_SUPPLY, "", "", "", "", "");
     }
 
     function test_BuyUpdatesInventoryReserveAndFee() public {
@@ -206,7 +232,8 @@ contract PumpFactoryTest {
         MockDexAdapter graduationAdapter = new MockDexAdapter();
         PumpFactory smallThresholdFactory =
             new PumpFactory(FEE_BPS, BASE_PRICE, 0, BASE_PRICE, address(graduationAdapter));
-        (, address newPairAddress) = smallThresholdFactory.createToken("Graduate", "GRAD", INITIAL_SUPPLY);
+        (, address newPairAddress) =
+            smallThresholdFactory.createToken("Graduate", "GRAD", INITIAL_SUPPLY, "", "", "", "", "");
         PumpPair newPair = PumpPair(newPairAddress);
         (,, uint256 totalCost) = newPair.quoteBuy(1 ether);
         vm.prank(TRADER);
@@ -223,7 +250,7 @@ contract PumpFactoryTest {
         PumpFactory smallThresholdFactory =
             new PumpFactory(FEE_BPS, BASE_PRICE, 0, BASE_PRICE, address(graduationAdapter));
         (address newTokenAddress, address newPairAddress) =
-            smallThresholdFactory.createToken("Graduate", "GRAD", INITIAL_SUPPLY);
+            smallThresholdFactory.createToken("Graduate", "GRAD", INITIAL_SUPPLY, "", "", "", "", "");
         PumpPair newPair = PumpPair(newPairAddress);
         (,, uint256 totalCost) = newPair.quoteBuy(1 ether);
 
@@ -258,7 +285,7 @@ contract PumpFactoryTest {
         PumpFactory smallThresholdFactory =
             new PumpFactory(FEE_BPS, BASE_PRICE, 0, BASE_PRICE, address(graduationAdapter));
         (address newTokenAddress, address newPairAddress) =
-            smallThresholdFactory.createToken("Graduate", "GRAD", INITIAL_SUPPLY);
+            smallThresholdFactory.createToken("Graduate", "GRAD", INITIAL_SUPPLY, "", "", "", "", "");
         PumpPair newPair = PumpPair(newPairAddress);
         MemeToken newToken = MemeToken(newTokenAddress);
         (,, uint256 totalCost) = newPair.quoteBuy(1 ether);
@@ -277,7 +304,7 @@ contract PumpFactoryTest {
         MockDexAdapter replacement = new MockDexAdapter();
         factory.setDexAdapter(address(replacement));
         factory.setGraduationThreshold(2 ether);
-        (, address newPairAddress) = factory.createToken("Configured", "CFG", INITIAL_SUPPLY);
+        (, address newPairAddress) = factory.createToken("Configured", "CFG", INITIAL_SUPPLY, "", "", "", "", "");
         PumpPair newPair = PumpPair(newPairAddress);
         assertEq(address(newPair.dexAdapter()), address(replacement));
         assertEq(newPair.graduationThreshold(), 2 ether);
@@ -315,6 +342,30 @@ contract PumpFactoryTest {
         assertEq(address(pair).balance, 0);
     }
 
+    function testFuzz_QuoteFeeNeverExceedsConfiguredRate(uint96 rawAmount) public view {
+        uint256 amount = uint256(rawAmount) % (100 ether) + 1;
+        (uint256 curveCost, uint256 fee,) = pair.quoteBuy(amount);
+        assertTrue(fee <= curveCost * FEE_BPS / 10_000);
+    }
+
+    function invariant_ActivePairAccountingIsSolvent() public view {
+        if (pair.status() == PumpPair.Status.ACTIVE) {
+            assertTrue(address(pair).balance >= pair.nativeReserve());
+            assertEq(pair.tokensSold() + token.balanceOf(address(pair)), INITIAL_SUPPLY);
+        }
+    }
+
+    function test_RevertTreasuryWithdrawalWhenRecipientRejectsNative() public {
+        uint256 amount = 1 ether;
+        (,, uint256 totalCost) = pair.quoteBuy(amount);
+        vm.prank(TRADER);
+        pair.buy{value: totalCost}(amount, totalCost);
+
+        RejectNative rejector = new RejectNative();
+        vm.expectRevert(Treasury.NativeTransferFailed.selector);
+        treasury.withdraw(payable(address(rejector)), address(treasury).balance);
+    }
+
     function test_RevertInvalidFactoryConfiguration() public {
         vm.expectRevert(PumpFactory.InvalidFeeBps.selector);
         new PumpFactory(1_001, BASE_PRICE, SLOPE, GRADUATION_THRESHOLD, address(adapter));
@@ -326,11 +377,11 @@ contract PumpFactoryTest {
 
     function test_RevertInvalidTokenMetadata() public {
         vm.expectRevert(TokenValidation.EmptyName.selector);
-        factory.createToken("", "NOW", INITIAL_SUPPLY);
+        factory.createToken("", "NOW", INITIAL_SUPPLY, "", "", "", "", "");
         vm.expectRevert(TokenValidation.EmptySymbol.selector);
-        factory.createToken("Pump", "", INITIAL_SUPPLY);
+        factory.createToken("Pump", "", INITIAL_SUPPLY, "", "", "", "", "");
         vm.expectRevert(TokenValidation.InvalidInitialSupply.selector);
-        factory.createToken("Pump", "NOW", 0);
+        factory.createToken("Pump", "NOW", 0, "", "", "", "", "");
     }
 
     function computeCreateAddress(address deployer, uint8 nonce) private pure returns (address) {

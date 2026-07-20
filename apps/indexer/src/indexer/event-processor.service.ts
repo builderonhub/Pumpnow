@@ -9,8 +9,11 @@ import {
 import { PrismaService } from "../database/prisma.service";
 import type { IndexedLog } from "./indexer.types";
 import { RedisService } from "../redis/redis.service";
+import type { RealtimeEvent } from "../redis/redis.service";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+export const candleOpenTime = (timestamp: Date, intervalMs: number): Date =>
+  new Date(Math.floor(timestamp.getTime() / intervalMs) * intervalMs);
 
 @Injectable()
 export class EventProcessorService {
@@ -54,6 +57,8 @@ export class EventProcessorService {
         }
       });
       await this.redis.invalidateApiCaches();
+      for (const event of this.realtimeEvents(log))
+        await this.redis.publish(event);
       return "processed";
     } catch (error) {
       if (
@@ -63,6 +68,53 @@ export class EventProcessorService {
         return "duplicate";
       throw error;
     }
+  }
+
+  private realtimeEvents(log: IndexedLog): RealtimeEvent[] {
+    const base = {
+      transactionHash: log.transactionHash.toLowerCase(),
+      occurredAt: log.blockTimestamp.toISOString(),
+    };
+    if (log.eventName === "TokenCreated")
+      return [
+        {
+          ...base,
+          type: "token.created",
+          tokenAddress: log.args.token.toLowerCase(),
+        },
+        { ...base, type: "stats.updated" },
+      ];
+    if (log.eventName === "Buy" || log.eventName === "Sell")
+      return [
+        {
+          ...base,
+          type: "trade.created",
+          tokenAddress: log.args.token.toLowerCase(),
+        },
+        { ...base, type: "stats.updated" },
+      ];
+    if (log.eventName === "Graduated")
+      return [
+        {
+          ...base,
+          type: "token.updated",
+          tokenAddress: log.args.token.toLowerCase(),
+        },
+        {
+          ...base,
+          type: "stats.updated",
+          tokenAddress: log.args.token.toLowerCase(),
+        },
+      ];
+    if (log.eventName === "FeeCollected")
+      return [
+        {
+          ...base,
+          type: "stats.updated",
+          tokenAddress: log.args.token.toLowerCase(),
+        },
+      ];
+    return [];
   }
 
   private wallet(
@@ -92,6 +144,12 @@ export class EventProcessorService {
         name: log.args.name,
         symbol: log.args.symbol,
         totalSupply: log.args.initialSupply.toString(),
+        graduationThreshold: log.args.graduationThreshold.toString(),
+        description: log.args.description || null,
+        logoUrl: log.args.imageUrl || null,
+        websiteUrl: log.args.websiteUrl || null,
+        xUrl: log.args.xUrl || null,
+        telegramUrl: log.args.telegramUrl || null,
         creationBlockNumber: log.blockNumber,
         creationTxHash: log.transactionHash.toLowerCase(),
         createdAt: log.blockTimestamp,
@@ -149,7 +207,7 @@ export class EventProcessorService {
     await this.wallet(tx, walletAddress);
     const token = await tx.token.findUniqueOrThrow({
       where: { address: tokenAddress },
-      select: { totalSupply: true },
+      select: { totalSupply: true, graduationThreshold: true },
     });
     const existing = await tx.holder.findUnique({
       where: { tokenAddress_walletAddress: { tokenAddress, walletAddress } },
@@ -175,6 +233,12 @@ export class EventProcessorService {
       update: { balance: next.toString(), ownershipBps },
     });
     const marketCap = price.mul(token.totalSupply);
+    const progress = Prisma.Decimal.min(
+      new Prisma.Decimal(100),
+      new Prisma.Decimal(log.args.nativeReserve.toString())
+        .mul(100)
+        .div(token.graduationThreshold),
+    );
     await tx.trade.create({
       data: {
         transactionHash: log.transactionHash.toLowerCase(),
@@ -191,6 +255,13 @@ export class EventProcessorService {
         blockTimestamp: log.blockTimestamp,
       },
     });
+    await this.upsertCandles(
+      tx,
+      tokenAddress,
+      log.blockTimestamp,
+      price,
+      new Prisma.Decimal(quoteAmount.toString()),
+    );
     await tx.token.update({
       where: { address: tokenAddress },
       data: {
@@ -199,6 +270,7 @@ export class EventProcessorService {
         totalVolume: { increment: quoteAmount.toString() },
         tradeCount: { increment: 1 },
         holderCount: { increment: holderDelta },
+        bondingCurveProgress: progress,
         circulatingSupply: {
           increment:
             side === TradeSide.BUY ? tokenAmount.toString() : `-${tokenAmount}`,
@@ -238,6 +310,34 @@ export class EventProcessorService {
         uniqueTraders: { increment: priorTrades === 0 ? 1 : 0 },
       },
     });
+  }
+
+  private async upsertCandles(
+    tx: Prisma.TransactionClient,
+    tokenAddress: string,
+    timestamp: Date,
+    price: Prisma.Decimal,
+    volume: Prisma.Decimal,
+  ): Promise<void> {
+    const definitions = [
+      ["candles_1m", 60_000],
+      ["candles_5m", 300_000],
+      ["candles_1h", 3_600_000],
+    ] as const;
+    for (const [table, intervalMs] of definitions) {
+      const openTime = candleOpenTime(timestamp, intervalMs);
+      await tx.$executeRaw`
+        INSERT INTO ${Prisma.raw(table)}
+          (token_address, open_time, open, high, low, close, volume, trade_count)
+        VALUES (${tokenAddress}, ${openTime}, ${price}, ${price}, ${price}, ${price}, ${volume}, 1)
+        ON CONFLICT (token_address, open_time) DO UPDATE SET
+          high = GREATEST(${Prisma.raw(table)}.high, EXCLUDED.high),
+          low = LEAST(${Prisma.raw(table)}.low, EXCLUDED.low),
+          close = EXCLUDED.close,
+          volume = ${Prisma.raw(table)}.volume + EXCLUDED.volume,
+          trade_count = ${Prisma.raw(table)}.trade_count + 1
+      `;
+    }
   }
 
   private async feeCollected(

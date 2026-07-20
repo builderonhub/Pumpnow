@@ -20,6 +20,12 @@ export type IndexedLog = EventBase &
           name: string;
           symbol: string;
           initialSupply: bigint;
+          graduationThreshold: bigint;
+          description: string;
+          imageUrl: string;
+          websiteUrl: string;
+          xUrl: string;
+          telegramUrl: string;
         };
       }
     | {

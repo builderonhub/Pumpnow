@@ -9,12 +9,16 @@ import { StatsModule } from './stats/stats.module';
 import { SearchModule } from './search/search.module';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard } from '@nestjs/throttler';
+import { RealtimeModule } from './realtime/realtime.module';
+import { WalletsModule } from './wallets/wallets.module';
+import { validateEnvironment } from './config/env.validation';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       envFilePath: '../../.env',
       isGlobal: true,
+      validate: validateEnvironment,
     }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
     DatabaseModule,
@@ -23,6 +27,8 @@ import { ThrottlerGuard } from '@nestjs/throttler';
     TokensModule,
     StatsModule,
     SearchModule,
+    RealtimeModule,
+    WalletsModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

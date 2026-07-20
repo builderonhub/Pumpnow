@@ -2,7 +2,10 @@
 import { Prisma } from "@pumpnow/database";
 import type { Address } from "viem";
 import { PrismaService } from "../database/prisma.service";
-import { EventProcessorService } from "./event-processor.service";
+import {
+  candleOpenTime,
+  EventProcessorService,
+} from "./event-processor.service";
 import type { IndexedLog } from "./indexer.types";
 import { RedisService } from "../redis/redis.service";
 
@@ -25,7 +28,10 @@ describe("EventProcessorService", () => {
     };
     const service = new EventProcessorService(
       prisma as unknown as PrismaService,
-      { invalidateApiCaches: jest.fn() } as unknown as RedisService,
+      {
+        invalidateApiCaches: jest.fn(),
+        publish: jest.fn(),
+      } as unknown as RedisService,
     );
     const log: IndexedLog = {
       eventName: "TokenCreated",
@@ -42,6 +48,12 @@ describe("EventProcessorService", () => {
         name: "Mock",
         symbol: "MOCK",
         initialSupply: 1000n,
+        graduationThreshold: 500n,
+        description: "A mock token",
+        imageUrl: "https://example.com/mock.png",
+        websiteUrl: "",
+        xUrl: "",
+        telegramUrl: "",
       },
     };
     await expect(service.process(log, 5042002n)).resolves.toBe("processed");
@@ -66,6 +78,14 @@ describe("EventProcessorService", () => {
         tokenReserve: "1000",
       }),
     });
+    expect(
+      (service as unknown as { redis: { publish: jest.Mock } }).redis.publish,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "token.created",
+        tokenAddress: addr("2"),
+      }),
+    );
   });
 
   it("treats a unique violation as an idempotent duplicate", async () => {
@@ -80,7 +100,10 @@ describe("EventProcessorService", () => {
     };
     const service = new EventProcessorService(
       prisma as unknown as PrismaService,
-      { invalidateApiCaches: jest.fn() } as unknown as RedisService,
+      {
+        invalidateApiCaches: jest.fn(),
+        publish: jest.fn(),
+      } as unknown as RedisService,
     );
     const log = {
       eventName: "TokenCreated",
@@ -97,8 +120,27 @@ describe("EventProcessorService", () => {
         name: "M",
         symbol: "M",
         initialSupply: 1n,
+        graduationThreshold: 1n,
+        description: "",
+        imageUrl: "",
+        websiteUrl: "",
+        xUrl: "",
+        telegramUrl: "",
       },
     } as IndexedLog;
     await expect(service.process(log, 1n)).resolves.toBe("duplicate");
+  });
+
+  it("buckets candle timestamps deterministically", () => {
+    const timestamp = new Date("2026-07-20T01:07:42.999Z");
+    expect(candleOpenTime(timestamp, 60_000).toISOString()).toBe(
+      "2026-07-20T01:07:00.000Z",
+    );
+    expect(candleOpenTime(timestamp, 300_000).toISOString()).toBe(
+      "2026-07-20T01:05:00.000Z",
+    );
+    expect(candleOpenTime(timestamp, 3_600_000).toISOString()).toBe(
+      "2026-07-20T01:00:00.000Z",
+    );
   });
 });

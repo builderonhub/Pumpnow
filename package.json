@@ -20,7 +20,15 @@
     "db:generate": "npm run prisma:generate --workspace=@pumpnow/database",
     "db:migrate": "npm run prisma:migrate --workspace=@pumpnow/database",
     "lint": "turbo lint",
+    "typecheck": "turbo typecheck",
     "test": "turbo test",
+    "stack:start": "docker compose up --build -d",
+    "stack:stop": "docker compose down",
+    "stack:reset": "docker compose down -v --remove-orphans",
+    "smoke": "node scripts/smoke.mjs",
+    "testnet:preflight": "node --env-file-if-exists=.env.testnet scripts/testnet-preflight.mjs",
+    "testnet:acceptance": "node --env-file-if-exists=.env.testnet scripts/testnet-acceptance.mjs",
+    "testnet:sync-deployment": "node scripts/sync-testnet-deployment.mjs",
     "clean": "turbo clean"
   },
   "devDependencies": {

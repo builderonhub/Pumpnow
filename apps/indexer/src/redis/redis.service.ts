@@ -2,6 +2,15 @@ import { Inject, Injectable, OnModuleDestroy } from "@nestjs/common";
 import Redis from "ioredis";
 import { REDIS_CLIENT } from "./redis.constants";
 
+export const REALTIME_CHANNEL = "pumpnow:realtime";
+
+export type RealtimeEvent = {
+  type: "token.created" | "token.updated" | "trade.created" | "stats.updated";
+  tokenAddress?: string;
+  transactionHash: string;
+  occurredAt: string;
+};
+
 @Injectable()
 export class RedisService implements OnModuleDestroy {
   constructor(@Inject(REDIS_CLIENT) private readonly client: Redis) {}
@@ -62,7 +71,17 @@ export class RedisService implements OnModuleDestroy {
 
   async invalidateApiCaches(): Promise<void> {
     const client = await this.connected();
-    await client.multi().incr('cache:version:tokens').incr('cache:version:stats').exec();
+    await client
+      .multi()
+      .incr("cache:version:tokens")
+      .incr("cache:version:stats")
+      .incr("cache:version:candles")
+      .exec();
+  }
+
+  async publish(event: RealtimeEvent): Promise<void> {
+    const client = await this.connected();
+    await client.publish(REALTIME_CHANNEL, JSON.stringify(event));
   }
 
   async onModuleDestroy(): Promise<void> {

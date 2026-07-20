@@ -46,7 +46,13 @@ contract PumpFactory {
         address indexed creator,
         string name,
         string symbol,
-        uint256 initialSupply
+        uint256 initialSupply,
+        uint256 graduationThreshold,
+        string description,
+        string imageUrl,
+        string websiteUrl,
+        string xUrl,
+        string telegramUrl
     );
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
     event DexAdapterUpdated(address indexed previousAdapter, address indexed newAdapter);
@@ -71,10 +77,16 @@ contract PumpFactory {
         _;
     }
 
-    function createToken(string calldata name, string calldata symbol, uint256 initialSupply)
-        external
-        returns (address tokenAddress, address pairAddress)
-    {
+    function createToken(
+        string calldata name,
+        string calldata symbol,
+        uint256 initialSupply,
+        string calldata description,
+        string calldata imageUrl,
+        string calldata websiteUrl,
+        string calldata xUrl,
+        string calldata telegramUrl
+    ) external returns (address tokenAddress, address pairAddress) {
         TokenValidation.validate(name, symbol, initialSupply);
 
         MemeToken token = new MemeToken(name, symbol);
@@ -98,7 +110,20 @@ contract PumpFactory {
             createdAt: block.timestamp
         });
 
-        emit TokenCreated(tokenAddress, pairAddress, msg.sender, name, symbol, initialSupply);
+        emit TokenCreated(
+            tokenAddress,
+            pairAddress,
+            msg.sender,
+            name,
+            symbol,
+            initialSupply,
+            graduationThreshold,
+            description,
+            imageUrl,
+            websiteUrl,
+            xUrl,
+            telegramUrl
+        );
     }
 
     function setPairPaused(address token, bool shouldPause) external onlyOwner {

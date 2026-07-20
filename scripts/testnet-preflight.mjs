@@ -26,9 +26,16 @@ if (privateKeys.length === 0) {
   console.log("No test wallet keys configured. Add PRIVATE_KEY and TEST_WALLET_PRIVATE_KEYS to .env.testnet.");
 } else {
   const { privateKeyToAccount } = await import("viem/accounts");
+  if (privateKeys.length !== 3) throw new Error("Configure exactly three distinct test wallets: deployer, Buyer A, and Buyer B");
+  const addresses = new Set();
   for (const [index, key] of privateKeys.entries()) {
     if (!/^0x[0-9a-fA-F]{64}$/.test(key)) throw new Error(`Test wallet key ${index + 1} has an invalid format`);
     const account = privateKeyToAccount(key);
+    const normalized = account.address.toLowerCase();
+    if (normalized === "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266")
+      throw new Error("The public Anvil default account must never be used on Arc Testnet");
+    if (addresses.has(normalized)) throw new Error(`Test wallet ${index + 1} duplicates another configured wallet`);
+    addresses.add(normalized);
     const balance = await client.getBalance({ address: account.address });
     console.log(`Wallet ${index + 1}: ${account.address} balance=${balance} wei`);
     if (balance === 0n) console.warn(`Wallet ${index + 1} needs Arc Testnet USDC from https://faucet.circle.com`);

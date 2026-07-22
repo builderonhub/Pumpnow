@@ -18,7 +18,7 @@ export function RealtimeSync() {
         for (const key of ["token", "trades", "holders", "candles"]) void queryClient.invalidateQueries({ queryKey: [key, address] });
       }
     };
-    for (const name of ["token.created", "token.updated", "trade.created", "stats.updated"]) source.addEventListener(name, refresh as EventListener);
+    for (const name of ["sync.required", "token.created", "token.updated", "trade.created", "stats.updated"]) source.addEventListener(name, refresh as EventListener);
     return () => source.close();
   }, [queryClient]);
   return null;

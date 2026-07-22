@@ -1,5 +1,6 @@
 services:
   anvil:
+    profiles: ["local"]
     image: ghcr.io/foundry-rs/foundry:latest
     entrypoint: ["anvil"]
     command: ["--host", "0.0.0.0", "--chain-id", "31337"]
@@ -20,7 +21,7 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: pumpnow
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - pumpnow_postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -34,7 +35,7 @@ services:
     container_name: pumpnow-redis
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - pumpnow_redis_data:/data
     command: redis-server --appendonly yes
@@ -65,7 +66,7 @@ services:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/pumpnow
       REDIS_URL: redis://redis:6379
       CORS_ORIGINS: http://localhost:3000
-    ports: ["3001:3001"]
+    ports: ["127.0.0.1:3001:3001"]
     depends_on:
       migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
@@ -89,9 +90,8 @@ services:
       PUMP_FACTORY_ADDRESS: ${PUMP_FACTORY_ADDRESS}
       INDEXER_START_BLOCK: ${INDEXER_START_BLOCK:-0}
       INDEXER_CONFIRMATIONS: ${INDEXER_CONFIRMATIONS:-0}
-    ports: ["3002:3002"]
+    ports: ["127.0.0.1:3002:3002"]
     depends_on:
-      anvil: { condition: service_healthy }
       migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
     healthcheck:
@@ -115,7 +115,7 @@ services:
     restart: unless-stopped
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
-    ports: ["3000:3000"]
+    ports: ["127.0.0.1:3000:3000"]
     depends_on:
       api: { condition: service_healthy }
     healthcheck:

@@ -10,10 +10,10 @@ Local dry run:
 forge script script/Deploy.s.sol:Deploy --rpc-url "$RPC_URL"
 ```
 
-Broadcast to a configured testnet:
+Broadcast PumpNow DEX and launch contracts to Arc Testnet:
 
 ```bash
-forge script script/Deploy.s.sol:Deploy --rpc-url "$RPC_URL" --broadcast --private-key "$PRIVATE_KEY"
+forge script script/DeployPumpDexTestnet.s.sol:DeployPumpDexTestnet --rpc-url "$ARC_TESTNET_RPC_URL" --broadcast
 ```
 
 ## Local Anvil

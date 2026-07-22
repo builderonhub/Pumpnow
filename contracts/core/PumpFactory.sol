@@ -62,7 +62,7 @@ contract PumpFactory {
         if (feeBps_ > MAX_FEE_BPS) revert InvalidFeeBps();
         if (basePrice_ == 0) revert InvalidCurveParameters();
         _validateThreshold(graduationThreshold_);
-        if (dexAdapter_ == address(0)) revert InvalidAddress();
+        if (dexAdapter_ == address(0) || dexAdapter_.code.length == 0) revert InvalidAddress();
         owner = msg.sender;
         feeBps = feeBps_;
         basePrice = basePrice_;
@@ -133,7 +133,7 @@ contract PumpFactory {
     }
 
     function setDexAdapter(address newAdapter) external onlyOwner {
-        if (newAdapter == address(0)) revert InvalidAddress();
+        if (newAdapter == address(0) || newAdapter.code.length == 0) revert InvalidAddress();
         emit DexAdapterUpdated(dexAdapter, newAdapter);
         dexAdapter = newAdapter;
     }

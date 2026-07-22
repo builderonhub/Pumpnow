@@ -4,6 +4,8 @@ pragma solidity ^0.8.24;
 import {IDexAdapter} from "../interfaces/IDexAdapter.sol";
 import {IMemeToken} from "../interfaces/IMemeToken.sol";
 
+/// @dev TEST-ONLY adapter. It custody-holds liquidity and does not create a
+/// real DEX position. Never configure this contract for a public deployment.
 contract MockDexAdapter is IDexAdapter {
     error InvalidAddress();
     error InvalidLiquidity();

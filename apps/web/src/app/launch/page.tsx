@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
-import { parseUnits } from "viem";
-import { useAccount, useChainId, useSwitchChain, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
+import { parseUnits, type Hash } from "viem";
+import { useAccount, useChainId, usePublicClient, useSwitchChain, useWriteContract } from "wagmi";
 import { useQueryClient } from "@tanstack/react-query";
 import { chainConfigError, pumpFactoryAbi, pumpFactoryAddress, pumpNowChain } from "@/lib/contracts";
 import { TransactionStatus } from "@/components/transaction-status";
@@ -21,21 +21,24 @@ export default function LaunchPage() {
   const [xUrl, setXUrl] = useState("");
   const [telegramUrl, setTelegramUrl] = useState("");
   const [validationError, setValidationError] = useState<string>();
+  const [transactionHash, setTransactionHash] = useState<Hash>();
+  const [confirming, setConfirming] = useState(false);
+  const [confirmed, setConfirmed] = useState(false);
   const { isConnected } = useAccount();
   const chainId = useChainId();
   const { switchChain, isPending: switching } = useSwitchChain();
   const queryClient = useQueryClient();
+  const publicClient = usePublicClient({ chainId: pumpNowChain.id });
   const write = useWriteContract();
-  const receipt = useWaitForTransactionReceipt({ hash: write.data });
 
   useEffect(() => {
-    if (receipt.isSuccess) void queryClient.invalidateQueries({ queryKey: ["tokens"] });
-  }, [queryClient, receipt.isSuccess]);
+    if (confirmed) void queryClient.invalidateQueries({ queryKey: ["tokens"] });
+  }, [confirmed, queryClient]);
 
-  function submit(event: FormEvent<HTMLFormElement>): void {
+  async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     if (!pumpFactoryAddress || chainConfigError || !isConnected || chainId !== pumpNowChain.id) return;
-    setValidationError(undefined);
+    setValidationError(undefined); setConfirmed(false); setTransactionHash(undefined);
     if (!name.trim()) return setValidationError("Name is required.");
     if (!/^[A-Za-z0-9]{1,20}$/.test(symbol.trim()))
       return setValidationError("Symbol must contain 1–20 letters or numbers.");
@@ -49,13 +52,25 @@ export default function LaunchPage() {
     } catch {
       return setValidationError("Initial supply must be a positive number.");
     }
-    write.writeContract({ address: pumpFactoryAddress, abi: pumpFactoryAbi, functionName: "createToken", args: [name.trim(), symbol.trim().toUpperCase(), initialSupply, description.trim(), imageUrl.trim(), websiteUrl.trim(), xUrl.trim(), telegramUrl.trim()], chainId: pumpNowChain.id });
+    if (!publicClient) return setValidationError("Arc RPC is unavailable. Try again in a moment.");
+    try {
+      const hash = await write.writeContractAsync({ address: pumpFactoryAddress, abi: pumpFactoryAbi, functionName: "createToken", args: [name.trim(), symbol.trim().toUpperCase(), initialSupply, description.trim(), imageUrl.trim(), websiteUrl.trim(), xUrl.trim(), telegramUrl.trim()], chainId: pumpNowChain.id });
+      setTransactionHash(hash);
+      setConfirming(true);
+      const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1, pollingInterval: 1_500, timeout: 120_000 });
+      if (receipt.status !== "success") throw new Error("The launch transaction reverted onchain.");
+      setConfirmed(true);
+    } catch (caught) {
+      setValidationError(caught instanceof Error ? caught.message.split("\n")[0] : "Token launch failed.");
+    } finally {
+      setConfirming(false);
+    }
   }
 
   const wrongChain = isConnected && chainId !== pumpNowChain.id;
   return <section className="page shell"><div className="page-intro"><span className="kicker">LAUNCH STUDIO</span><h1>Shape your next token.</h1><p>The connected wallet creates the token and its bonding-curve pair onchain.</p></div>
     <form className="launch-form" onSubmit={submit}><div className="form-grid"><label className="logo-field"><span>Image URL</span><input type="url" value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} placeholder="https://…" /></label><div className="form-fields"><div className="field-row"><label>Name<input required minLength={1} maxLength={100} value={name} onChange={(e) => setName(e.target.value)} placeholder="Arcade Cats" /></label><label>Symbol<input required pattern="[A-Za-z0-9]{1,20}" minLength={1} maxLength={20} value={symbol} onChange={(e) => setSymbol(e.target.value)} placeholder="ARCAT" /></label></div><label>Description<textarea maxLength={1000} value={description} onChange={(e) => setDescription(e.target.value)} /></label><label>Initial supply<input required inputMode="decimal" value={supply} onChange={(e) => setSupply(e.target.value)} /></label><div className="field-row"><label>Website<input type="url" value={websiteUrl} onChange={(e) => setWebsiteUrl(e.target.value)} /></label><label>X<input type="url" value={xUrl} onChange={(e) => setXUrl(e.target.value)} /></label></div><label>Telegram<input type="url" value={telegramUrl} onChange={(e) => setTelegramUrl(e.target.value)} /></label></div></div>
-      <div className="form-note"><span>Onchain</span><p>{chainConfigError ?? (wrongChain ? `Switch to ${pumpNowChain.name} before launching.` : "Your wallet will ask you to confirm the factory transaction.")}</p>{wrongChain ? <button type="button" disabled={switching} onClick={() => switchChain({ chainId: pumpNowChain.id })}>Switch network</button> : <button type="submit" disabled={!isConnected || write.isPending || receipt.isLoading || Boolean(chainConfigError)}>{!isConnected ? "Connect wallet first" : write.isPending ? "Confirm in wallet…" : receipt.isLoading ? "Launching…" : "Launch token"}</button>}</div>
-      <TransactionStatus hash={write.data} pending={write.isPending || receipt.isLoading} label={receipt.isSuccess ? "Token launch confirmed. Waiting for the indexer to publish it." : undefined} error={validationError ?? messageOf(write.error ?? receipt.error)} />
+      <div className="form-note"><span>Onchain</span><p>{chainConfigError ?? (wrongChain ? `Switch to ${pumpNowChain.name} before launching.` : "Your wallet will ask you to confirm the factory transaction.")}</p>{wrongChain ? <button type="button" disabled={switching} onClick={() => switchChain({ chainId: pumpNowChain.id })}>Switch network</button> : <button type="submit" disabled={!isConnected || write.isPending || confirming || Boolean(chainConfigError)}>{!isConnected ? "Connect wallet first" : write.isPending ? "Confirm in wallet…" : confirming ? "Launching…" : confirmed ? "Launch another token" : "Launch token"}</button>}</div>
+      <TransactionStatus hash={transactionHash} pending={write.isPending || confirming} label={confirmed ? "Token launch confirmed. Waiting for the indexer to publish it." : undefined} error={validationError ?? messageOf(write.error)} />
     </form></section>;
 }

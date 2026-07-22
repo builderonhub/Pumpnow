@@ -23,7 +23,7 @@ command -v forge >/dev/null || {
 cd "$ROOT_DIR/contracts"
 forge fmt --check
 forge test
-forge script script/DeployTestnet.s.sol:DeployTestnet \
+forge script script/DeployPumpDexTestnet.s.sol:DeployPumpDexTestnet \
   --rpc-url "$ARC_TESTNET_RPC_URL" \
   --broadcast
 

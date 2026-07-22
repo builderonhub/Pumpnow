@@ -14,12 +14,20 @@ import { StructuredLogger } from "./structured-logger.service";
 const delay = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
+export class IndexerLeaseLostError extends Error {
+  constructor() {
+    super("Indexer lock was lost");
+    this.name = "IndexerLeaseLostError";
+  }
+}
+
 @Injectable()
 export class IndexerRunnerService
   implements OnApplicationBootstrap, OnApplicationShutdown
 {
   private stopped = false;
   private running = false;
+  private hasLease = false;
   private latestChainBlock: bigint | null = null;
   private readonly mode: "live" | "backfill";
   private readonly confirmations: bigint;
@@ -56,7 +64,8 @@ export class IndexerRunnerService
   }
   async onApplicationShutdown(): Promise<void> {
     this.stopped = true;
-    await this.lock.release(this.lockKey);
+    if (this.hasLease) await this.lock.release(this.lockKey);
+    this.hasLease = false;
   }
   async health(): Promise<IndexerHealth> {
     const [state, activeLease] = await Promise.all([
@@ -75,17 +84,6 @@ export class IndexerRunnerService
 
   async run(): Promise<void> {
     if (this.running) return;
-    while (!(await this.lock.acquire(this.lockKey, this.lockTtlMs))) {
-      this.logger.info("indexer.lock_unavailable", {
-        chainId: this.source.chainId.toString(),
-      });
-      if (this.mode === "backfill" || this.stopped) return;
-      await delay(this.pollMs);
-    }
-    if (this.stopped) {
-      await this.lock.release(this.lockKey);
-      return;
-    }
     this.running = true;
     this.logger.info("indexer.started", {
       mode: this.mode,
@@ -93,10 +91,29 @@ export class IndexerRunnerService
     });
     try {
       do {
+        if (!this.hasLease) {
+          this.hasLease = await this.lock.acquire(this.lockKey, this.lockTtlMs);
+          if (!this.hasLease) {
+            this.logger.info("indexer.lock_unavailable", {
+              chainId: this.source.chainId.toString(),
+            });
+            if (this.mode === "backfill" || this.stopped) break;
+            await delay(this.pollMs);
+            continue;
+          }
+          this.logger.info("indexer.lock_acquired", {
+            chainId: this.source.chainId.toString(),
+          });
+        }
         try {
           await this.syncOnce();
         } catch (error) {
-          this.logger.error("indexer.sync_failed", error);
+          if (error instanceof IndexerLeaseLostError) {
+            this.hasLease = false;
+            this.logger.error("indexer.lease_lost", error);
+          } else {
+            this.logger.error("indexer.sync_failed", error);
+          }
           if (this.mode === "backfill") throw error;
         }
         if (this.mode === "backfill") break;
@@ -106,12 +123,14 @@ export class IndexerRunnerService
       this.logger.error("indexer.stopped_with_error", error);
     } finally {
       this.running = false;
-      await this.lock.release(this.lockKey);
+      if (this.hasLease) await this.lock.release(this.lockKey);
+      this.hasLease = false;
     }
   }
 
   async syncOnce(): Promise<void> {
-    await this.lock.refresh(this.lockKey, this.lockTtlMs);
+    if (!(await this.lock.refresh(this.lockKey, this.lockTtlMs)))
+      throw new IndexerLeaseLostError();
     this.latestChainBlock = await this.retry("rpc.latest_block", () =>
       this.source.latestBlock(),
     );
@@ -137,12 +156,15 @@ export class IndexerRunnerService
         this.source.logs(from, to),
       );
       let processed = 0;
-      for (const log of logs)
+      for (const log of logs) {
+        if (!(await this.lock.refresh(this.lockKey, this.lockTtlMs)))
+          throw new IndexerLeaseLostError();
         if (
           (await this.processor.process(log, this.source.chainId)) ===
           "processed"
         )
           processed += 1;
+      }
       const hash = await this.retry("rpc.range_hash", () =>
         this.source.blockHash(to),
       );
@@ -164,7 +186,7 @@ export class IndexerRunnerService
       });
       from = to + 1n;
       if (!(await this.lock.refresh(this.lockKey, this.lockTtlMs)))
-        throw new Error("Indexer lock was lost");
+        throw new IndexerLeaseLostError();
     }
   }
 

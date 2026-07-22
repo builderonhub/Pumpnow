@@ -1,0 +1,18 @@
+[
+  {
+    "type": "event",
+    "name": "Swap",
+    "anonymous": false,
+    "inputs": [
+      { "indexed": true, "name": "sender", "type": "address" },
+      { "indexed": true, "name": "recipient", "type": "address" },
+      { "indexed": true, "name": "token", "type": "address" },
+      { "indexed": false, "name": "nativeToToken", "type": "bool" },
+      { "indexed": false, "name": "amountIn", "type": "uint256" },
+      { "indexed": false, "name": "amountOut", "type": "uint256" },
+      { "indexed": false, "name": "fee", "type": "uint256" },
+      { "indexed": false, "name": "tokenReserve", "type": "uint256" },
+      { "indexed": false, "name": "nativeReserve", "type": "uint256" }
+    ]
+  }
+]

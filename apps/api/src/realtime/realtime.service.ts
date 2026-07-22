@@ -4,7 +4,12 @@ import Redis from 'ioredis';
 import { Subject } from 'rxjs';
 
 export type RealtimeEvent = {
-  type: 'token.created' | 'token.updated' | 'trade.created' | 'stats.updated';
+  type:
+    | 'sync.required'
+    | 'token.created'
+    | 'token.updated'
+    | 'trade.created'
+    | 'stats.updated';
   tokenAddress?: string;
   transactionHash: string;
   occurredAt: string;
@@ -19,6 +24,8 @@ export class RealtimeService implements OnModuleInit, OnModuleDestroy {
     this.subscriber = new Redis(config.getOrThrow<string>('REDIS_URL'), {
       lazyConnect: true,
       maxRetriesPerRequest: null,
+      autoResubscribe: true,
+      retryStrategy: (attempt) => Math.min(attempt * 250, 5_000),
     });
   }
 

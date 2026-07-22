@@ -34,7 +34,7 @@ export class EventProcessorService {
     chainId: bigint,
   ): Promise<"processed" | "duplicate"> {
     try {
-      await this.prisma.$transaction(async (tx) => {
+      const relevant = await this.prisma.$transaction(async (tx) => {
         await tx.indexedEvent.create({
           data: {
             transactionHash: log.transactionHash.toLowerCase(),
@@ -48,21 +48,21 @@ export class EventProcessorService {
         switch (log.eventName) {
           case "TokenCreated":
             await this.tokenCreated(tx, log, chainId);
-            break;
+            return true;
           case "Buy":
-            await this.trade(tx, log, chainId, TradeSide.BUY);
-            break;
+            return this.trade(tx, log, chainId, TradeSide.BUY);
           case "Sell":
-            await this.trade(tx, log, chainId, TradeSide.SELL);
-            break;
+            return this.trade(tx, log, chainId, TradeSide.SELL);
+          case "DexSwap":
+            return this.dexTrade(tx, log, chainId);
           case "FeeCollected":
             await this.feeCollected(tx, log, chainId);
-            break;
+            return true;
           case "Graduated":
-            await this.graduated(tx, log, chainId);
-            break;
+            return this.graduated(tx, log, chainId);
         }
       });
+      if (!relevant) return "processed";
       await this.redis.invalidateApiCaches();
       for (const event of this.realtimeEvents(log))
         await this.redis.publish(event);
@@ -91,7 +91,11 @@ export class EventProcessorService {
         },
         { ...base, type: "stats.updated" },
       ];
-    if (log.eventName === "Buy" || log.eventName === "Sell")
+    if (
+      log.eventName === "Buy" ||
+      log.eventName === "Sell" ||
+      log.eventName === "DexSwap"
+    )
       return [
         {
           ...base,
@@ -122,6 +126,126 @@ export class EventProcessorService {
         },
       ];
     return [];
+  }
+
+  private async dexTrade(
+    tx: Prisma.TransactionClient,
+    log: Extract<IndexedLog, { eventName: "DexSwap" }>,
+    chainId: bigint,
+  ): Promise<boolean> {
+    const tokenAddress = log.args.token.toLowerCase();
+    const walletAddress = log.args.sender.toLowerCase();
+    const side = log.args.nativeToToken ? TradeSide.BUY : TradeSide.SELL;
+    const tokenAmount = log.args.nativeToToken
+      ? log.args.amountOut
+      : log.args.amountIn;
+    const quoteAmount = log.args.nativeToToken
+      ? log.args.amountIn
+      : log.args.amountOut;
+    const pool = await tx.liquidityPool.findUnique({
+      where: { tokenAddress },
+    });
+    // Arc-wide event queries may encounter the same signature on unrelated
+    // contracts. Unknown tokens are not PumpNow events and are ignored.
+    if (!pool) return false;
+    if (pool.address.toLowerCase() !== log.address.toLowerCase()) {
+      throw new Error(
+        `DEX swap source is not the registered pool for ${tokenAddress}`,
+      );
+    }
+    await this.wallet(tx, walletAddress);
+    const token = await tx.token.findUniqueOrThrow({
+      where: { address: tokenAddress },
+    });
+    const existing = await tx.holder.findUnique({
+      where: { tokenAddress_walletAddress: { tokenAddress, walletAddress } },
+    });
+    const previous = existing ? BigInt(existing.balance.toFixed(0)) : 0n;
+    const next =
+      side === TradeSide.BUY ? previous + tokenAmount : previous - tokenAmount;
+    if (next < 0n)
+      throw new Error(`Negative holder balance for ${walletAddress}`);
+    const holderDelta =
+      previous === 0n && next > 0n ? 1 : previous > 0n && next === 0n ? -1 : 0;
+    const supply = BigInt(token.totalSupply.toFixed(0));
+    const ownershipBps = supply === 0n ? 0 : Number((next * 10_000n) / supply);
+    await tx.holder.upsert({
+      where: { tokenAddress_walletAddress: { tokenAddress, walletAddress } },
+      create: {
+        tokenAddress,
+        walletAddress,
+        balance: next.toString(),
+        ownershipBps,
+        firstSeenAt: log.blockTimestamp,
+      },
+      update: { balance: next.toString(), ownershipBps },
+    });
+    const price = new Prisma.Decimal(quoteAmount.toString()).div(
+      tokenAmount.toString(),
+    );
+    const marketCap = tokenMarketCap(price, token.totalSupply);
+    const volume = nativeAmount(quoteAmount);
+    await tx.trade.create({
+      data: {
+        transactionHash: log.transactionHash.toLowerCase(),
+        logIndex: log.logIndex,
+        tokenAddress,
+        walletAddress,
+        side,
+        tokenAmount: tokenAmount.toString(),
+        quoteAmount: quoteAmount.toString(),
+        feeAmount: "0",
+        price,
+        marketCap,
+        blockNumber: log.blockNumber,
+        blockTimestamp: log.blockTimestamp,
+      },
+    });
+    await this.upsertCandles(
+      tx,
+      tokenAddress,
+      log.blockTimestamp,
+      price,
+      volume,
+    );
+    await tx.token.update({
+      where: { address: tokenAddress },
+      data: {
+        price,
+        marketCap,
+        volume24h: { increment: volume },
+        totalVolume: { increment: volume },
+        tradeCount: { increment: 1 },
+        holderCount: { increment: holderDelta },
+        circulatingSupply: {
+          increment:
+            side === TradeSide.BUY ? tokenAmount.toString() : `-${tokenAmount}`,
+        },
+      },
+    });
+    await tx.liquidityPool.update({
+      where: { tokenAddress },
+      data: {
+        tokenReserve: log.args.tokenReserve.toString(),
+        quoteReserve: log.args.nativeReserve.toString(),
+      },
+    });
+    await tx.platformStats.upsert({
+      where: { chainId },
+      create: {
+        chainId,
+        totalTrades: 1n,
+        totalVolume: volume,
+        volume24h: volume,
+        uniqueTraders: 1,
+      },
+      update: {
+        totalTrades: { increment: 1 },
+        totalVolume: { increment: volume },
+        volume24h: { increment: volume },
+      },
+    });
+    return true;
   }
 
   private wallet(
@@ -188,7 +312,7 @@ export class EventProcessorService {
     log: Extract<IndexedLog, { eventName: "Buy" | "Sell" }>,
     chainId: bigint,
     side: TradeSide,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const walletAddress = (
       log.eventName === "Buy" ? log.args.buyer : log.args.seller
     ).toLowerCase();
@@ -203,10 +327,11 @@ export class EventProcessorService {
         : new Prisma.Decimal(quoteAmount.toString()).div(
             tokenAmount.toString(),
           );
-    const pool = await tx.liquidityPool.findUniqueOrThrow({
+    const pool = await tx.liquidityPool.findUnique({
       where: { tokenAddress },
       select: { address: true },
     });
+    if (!pool) return false;
     if (pool.address.toLowerCase() !== log.address.toLowerCase())
       throw new Error(
         `Event source is not the registered pair for ${tokenAddress}`,
@@ -321,6 +446,7 @@ export class EventProcessorService {
         uniqueTraders: { increment: priorTrades === 0 ? 1 : 0 },
       },
     });
+    return true;
   }
 
   private async upsertCandles(
@@ -383,12 +509,14 @@ export class EventProcessorService {
     tx: Prisma.TransactionClient,
     log: Extract<IndexedLog, { eventName: "Graduated" }>,
     chainId: bigint,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const token = log.args.token.toLowerCase();
-    const pool = await tx.liquidityPool.findUniqueOrThrow({
+    const dexPoolAddress = `0x${log.args.positionId.slice(-40)}`.toLowerCase();
+    const pool = await tx.liquidityPool.findUnique({
       where: { tokenAddress: token },
       select: { address: true },
     });
+    if (!pool) return false;
     if (pool.address.toLowerCase() !== log.address.toLowerCase())
       throw new Error(`Event source is not the registered pair for ${token}`);
     await tx.token.update({
@@ -402,7 +530,7 @@ export class EventProcessorService {
     await tx.liquidityPool.update({
       where: { tokenAddress: token },
       data: {
-        address: log.args.pair.toLowerCase(),
+        address: dexPoolAddress,
         dex: log.args.adapter.toLowerCase(),
         status: LiquidityPoolStatus.ACTIVE,
         tokenReserve: log.args.tokenLiquidity.toString(),
@@ -420,5 +548,6 @@ export class EventProcessorService {
         graduatedTokens: { increment: 1 },
       },
     });
+    return true;
   }
 }

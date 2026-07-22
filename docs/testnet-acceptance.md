@@ -9,16 +9,16 @@
 - Native gas token: USDC (18 decimals)
 - Explorer: `https://testnet.arcscan.app`
 - Faucet: `https://faucet.circle.com`
-- Mainnet deployment: explicitly out of scope
+- Public production deployment: explicitly out of scope
 
 Arc Testnet has deterministic finality, so the indexer uses zero additional confirmations. Testnet can still experience upgrades or downtime; retry and checkpoint behavior must remain enabled.
 
 ## Safety rules
 
-- Use fresh test-only wallets. Never use a wallet that holds mainnet assets.
+- Use fresh test-only wallets. Never use a wallet that holds valuable assets.
 - Never commit `.env.testnet`, private keys, or faucet credentials.
 - `MockDexAdapter` is permitted only for acceptance testing. It is not a production DEX integration.
-- Do not reuse these deployment parameters for mainnet.
+- Do not reuse these deployment parameters for public production.
 
 ## Account and faucet checklist
 
@@ -82,7 +82,7 @@ Manual UI checks:
 
 ## Results
 
-Status: **BLOCKED — external testnet credentials/tooling required**
+Status: **PASS — automated Arc Testnet acceptance completed; manual UI checks remain open**
 
 Local verification completed on 2026-07-20:
 
@@ -93,8 +93,8 @@ Local verification completed on 2026-07-20:
 - [x] Deployment output sync and RPC/wallet preflight added.
 - [x] Multi-wallet acceptance runner added.
 - [x] Next.js Docker build now receives `NEXT_PUBLIC_*` values at build time.
-- [ ] Contracts deployed to Arc Testnet.
-- [ ] Automated multi-wallet acceptance executed on Arc Testnet.
+- [x] Contracts deployed to Arc Testnet.
+- [x] Automated multi-wallet acceptance executed on Arc Testnet.
 - [ ] Manual realtime/UI acceptance completed.
 
 ## Defects found and fixed
@@ -109,7 +109,7 @@ The Viem chain definition omitted the Arcscan explorer. Fixed by adding `NEXT_PU
 
 ### TA-003 — No reproducible acceptance deployment
 
-The generic deployment expected an already deployed DEX adapter. Added an acceptance-only deployer that creates `MockDexAdapter` and `PumpFactory` together. The mock is clearly prohibited for mainnet.
+The old acceptance deployer created `MockDexAdapter`. Public Arc Testnet now uses `DeployPumpDexTestnet` and the PumpNow DEX; the mock is local-only.
 
 ### TA-004 — No guard against wrong RPC, empty wallets, or stale factory address
 
@@ -122,4 +122,52 @@ Added a preflight that checks chain ID, latest block, wallet balances, factory a
 - Source verification depends on Arcscan exposing a supported verification flow/API.
 - Public RPC rate limits may require a managed Arc RPC endpoint for stress testing.
 - Acceptance must be rerun after every contract deployment because indexer start block and factory address change.
-- Mainnet remains blocked pending contract audit, real DEX integration, operational secrets management, and a separate approval.
+- Public production use remains blocked pending contract audit, operational secrets management, and separate approval.
+
+## Latest evidence (2026-07-21)
+
+| Check | Status | Evidence |
+| --- | --- | --- |
+| npm lint | PASS | Turbo: 3/3 lint tasks successful |
+| npm typecheck | PASS | Turbo: 3/3 typecheck tasks successful |
+| npm unit tests | PASS | API 10/10 and indexer 12/12 tests passed |
+| API e2e | PASS | 2/2 tests passed |
+| npm production build | PASS | Database, API, indexer and Next.js builds successful |
+| local smoke | PASS | API health, indexer health and web checks passed |
+| database invariant audit | PASS | 2 tokens, 29 trades, 0 duplicate trades, 0 candle/counter mismatches |
+| Foundry regression | BLOCKED | `forge` is unavailable and this runner has no installed WSL distribution |
+| public Arc multi-wallet acceptance | NOT RUN | Requires funded test wallets and explicit testnet execution |
+| manual realtime/mobile acceptance | NOT RUN | Requires an interactive browser/wallet session |
+
+At that intermediate checkpoint the gate was blocked; the subsequent public-chain run below now closes the automated acceptance gate.
+
+## Arc Testnet automated acceptance evidence (2026-07-21)
+
+Status: **PASS**
+
+The complete automated flow finished successfully:
+
+- Indexer caught up from 33 blocks of lag to 0.
+- Launch, bonding-curve buy, approve/sell and graduation passed.
+- Graduation pool reserves reconciled and LP liquidity was permanently locked.
+- Native-to-token and token-to-native DEX swaps passed.
+- Indexer, API, candle/chart data and portfolio checks passed.
+
+Release evidence:
+
+| Item | Value |
+| --- | --- |
+| Token | `0x739Af46EE323C88D554E6CBbF5EC2E8847c2Bb63` |
+| Bonding pair | `0x19c675df16cAF4B887eD2CE3CB9Ca6ADd2cF4Bf5` |
+| DEX pool | `0x32fd4df49f1946daddcbb8632cc11dda6b50663b` |
+| Locked LP shares | `713817105465048378732` |
+| Launch transaction | `0x95d2a9964e42eb733b26c817c948f6635838a9d127b769adfc1aa95cab055a85` |
+| Curve buy transaction | `0x51e5e523ac689c9086cbdf1384afcbbdc082a4b1f124019da05af4d2edb4ac0b` |
+| Approve/sell transactions | `0xb8f84c3fba05bad28cc63838be48985199b9da729f5ad29b97db81e6c70eb104`, `0xf99b21ea0c6295d05f58c9ff6e6e882cd27a5db9f7150e245929090ba68cd2cf` |
+| Graduation transaction | `0xa461568bee392cf521ec5580f6cce96f778efcbaff306852f1697392389d57dd` |
+| DEX native-to-token transaction | `0xf507d9f7b863f237b6ed86f2bf072fded7bda2e6986932cec7a1b10290a6366e` |
+| DEX approve/token-to-native transactions | `0x5e138f7ea3877496cbef379ff06e161c8925fa0aeabdb8adf557f75f8caaecb2`, `0x04ad2d1cd1b0537715cf7a91ce25d7e3bb94d6cabea3bc07ba6bc4e7bab1c85f` |
+
+Observed operational warning: the Arc public RPC rate-limited several `eth_call` requests. Bounded retries recovered on the first retry, so correctness passed; production capacity still requires managed RPC failover and monitoring.
+
+The automated testnet gate is PASS. Manual wallet, realtime UI, responsive/mobile and accessibility checks remain separate release checklist items.

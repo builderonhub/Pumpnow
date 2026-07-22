@@ -1,14 +1,17 @@
 import { defineChain, isAddress, type Address } from "viem";
 
 const chainId = Number(process.env.NEXT_PUBLIC_CHAIN_ID);
-const rpcUrl = process.env.NEXT_PUBLIC_RPC_URL;
+const rpcUrls = (process.env.NEXT_PUBLIC_RPC_URLS ?? process.env.NEXT_PUBLIC_RPC_URL ?? "")
+  .split(",")
+  .map((value) => value.trim())
+  .filter(Boolean);
 const factoryAddressValue = process.env.NEXT_PUBLIC_PUMP_FACTORY_ADDRESS;
 
 export const chainConfigError =
   !Number.isSafeInteger(chainId) || chainId <= 0
     ? "NEXT_PUBLIC_CHAIN_ID must be a positive integer"
-    : !rpcUrl
-      ? "NEXT_PUBLIC_RPC_URL is missing"
+    : rpcUrls.length === 0
+      ? "NEXT_PUBLIC_RPC_URLS or NEXT_PUBLIC_RPC_URL is missing"
       : !factoryAddressValue || !isAddress(factoryAddressValue)
         ? "NEXT_PUBLIC_PUMP_FACTORY_ADDRESS is invalid"
         : null;
@@ -22,7 +25,7 @@ export const pumpNowChain = defineChain({
   id: Number.isSafeInteger(chainId) && chainId > 0 ? chainId : 31337,
   name: process.env.NEXT_PUBLIC_CHAIN_NAME ?? "PumpNow Local",
   nativeCurrency: { name: "Native", symbol: process.env.NEXT_PUBLIC_NATIVE_SYMBOL ?? "ETH", decimals: 18 },
-  rpcUrls: { default: { http: [rpcUrl || "http://127.0.0.1:8545"] } },
+  rpcUrls: { default: { http: rpcUrls.length > 0 ? rpcUrls : ["http://127.0.0.1:8545"] } },
   blockExplorers: process.env.NEXT_PUBLIC_BLOCK_EXPLORER_URL
     ? { default: { name: "Arcscan", url: process.env.NEXT_PUBLIC_BLOCK_EXPLORER_URL } }
     : undefined,
@@ -43,4 +46,11 @@ export const erc20Abi = [
   { type: "function", name: "approve", stateMutability: "nonpayable", inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ name: "", type: "bool" }] },
   { type: "function", name: "allowance", stateMutability: "view", inputs: [{ name: "owner", type: "address" }, { name: "spender", type: "address" }], outputs: [{ name: "", type: "uint256" }] },
   { type: "function", name: "balanceOf", stateMutability: "view", inputs: [{ name: "owner", type: "address" }], outputs: [{ name: "", type: "uint256" }] },
+] as const;
+
+export const pumpDexPoolAbi = [
+  { type: "function", name: "quoteNativeForToken", stateMutability: "view", inputs: [{ name: "nativeInput", type: "uint256" }], outputs: [{ name: "tokenOutput", type: "uint256" }] },
+  { type: "function", name: "quoteTokenForNative", stateMutability: "view", inputs: [{ name: "tokenInput", type: "uint256" }], outputs: [{ name: "nativeOutput", type: "uint256" }] },
+  { type: "function", name: "swapNativeForToken", stateMutability: "payable", inputs: [{ name: "minTokenOutput", type: "uint256" }, { name: "recipient", type: "address" }], outputs: [{ name: "tokenOutput", type: "uint256" }] },
+  { type: "function", name: "swapTokenForNative", stateMutability: "nonpayable", inputs: [{ name: "tokenInput", type: "uint256" }, { name: "minNativeOutput", type: "uint256" }, { name: "recipient", type: "address" }], outputs: [{ name: "nativeOutput", type: "uint256" }] },
 ] as const;

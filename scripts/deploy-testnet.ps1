@@ -8,7 +8,7 @@ Push-Location contracts
 try {
   forge fmt --check
   forge test
-  forge script script/DeployTestnet.s.sol:DeployTestnet --rpc-url $env:ARC_TESTNET_RPC_URL --broadcast
+  forge script script/DeployPumpDexTestnet.s.sol:DeployPumpDexTestnet --rpc-url $env:ARC_TESTNET_RPC_URL --broadcast
 } finally { Pop-Location }
 node scripts/sync-testnet-deployment.mjs
 node --env-file=.env.testnet scripts/testnet-preflight.mjs

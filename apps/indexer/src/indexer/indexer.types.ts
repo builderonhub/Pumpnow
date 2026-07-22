@@ -60,6 +60,20 @@ export type IndexedLog = EventBase &
         };
       }
     | {
+        eventName: "DexSwap";
+        args: {
+          sender: Address;
+          recipient: Address;
+          token: Address;
+          nativeToToken: boolean;
+          amountIn: bigint;
+          amountOut: bigint;
+          fee: bigint;
+          tokenReserve: bigint;
+          nativeReserve: bigint;
+        };
+      }
+    | {
         eventName: "Graduated";
         args: {
           token: Address;

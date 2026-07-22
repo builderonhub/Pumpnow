@@ -3,7 +3,10 @@ import { ConfigService } from "@nestjs/config";
 import { PrismaService } from "../database/prisma.service";
 import { BlockchainSourceService } from "./blockchain-source.service";
 import { EventProcessorService } from "./event-processor.service";
-import { IndexerRunnerService } from "./indexer-runner.service";
+import {
+  IndexerLeaseLostError,
+  IndexerRunnerService,
+} from "./indexer-runner.service";
 import type { IndexedLog } from "./indexer.types";
 import { RedisLockService } from "./redis-lock.service";
 
@@ -120,5 +123,23 @@ describe("IndexerRunnerService", () => {
     await expect(makeRunner().health()).resolves.toEqual(
       expect.objectContaining({ running: true }),
     );
+  });
+
+  it("stops before RPC work when the lease disappeared during a Redis restart", async () => {
+    lock.refresh.mockResolvedValueOnce(false);
+    await expect(makeRunner().syncOnce()).rejects.toBeInstanceOf(
+      IndexerLeaseLostError,
+    );
+    expect(source.latestBlock).not.toHaveBeenCalled();
+    expect(processor.process).not.toHaveBeenCalled();
+  });
+
+  it("does not advance the checkpoint when the lease is lost between logs", async () => {
+    lock.refresh.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+    await expect(makeRunner().syncOnce()).rejects.toBeInstanceOf(
+      IndexerLeaseLostError,
+    );
+    expect(processor.process).not.toHaveBeenCalled();
+    expect(prisma.indexerState.upsert).not.toHaveBeenCalled();
   });
 });

@@ -10,7 +10,7 @@ interface TestnetVm {
     function stopBroadcast() external;
 }
 
-/// @dev Acceptance-only deployment. MockDexAdapter must never be used on mainnet.
+/// @dev Local acceptance only. Public Arc Testnet uses DeployPumpDexTestnet.
 contract DeployTestnet {
     error FeeBpsOutOfRange();
 

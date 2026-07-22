@@ -11,7 +11,7 @@ export function parseAbiJson(content: string, path: string): Abi {
 
 @Injectable()
 export class AbiLoader {
-  load(name: "PumpFactory" | "PumpPair" | "Treasury"): Abi {
+  load(name: "PumpFactory" | "PumpPair" | "Treasury" | "PumpDexPool"): Abi {
     const relative = join("contracts", "abi", `${name}.json`);
     const candidates = [
       resolve(process.cwd(), relative),

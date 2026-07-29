@@ -35,3 +35,5 @@ npm-debug.log*
 Thumbs.db
 .idea/
 .vscode/settings.json
+
+.vercel

@@ -22,6 +22,7 @@ export function validateEnvironment(env: Environment): Environment {
   const databaseUrl = required(env, "DATABASE_URL");
   const redisUrl = required(env, "REDIS_URL");
   const rpcUrl = required(env, "RPC_URL");
+  const corsOrigins = required(env, "CORS_ORIGINS");
   const rpcUrls =
     typeof env.RPC_URLS === "string" && env.RPC_URLS.trim() !== ""
       ? env.RPC_URLS.split(",").map((value) => value.trim())
@@ -30,6 +31,7 @@ export function validateEnvironment(env: Environment): Environment {
   new URL(databaseUrl);
   new URL(redisUrl);
   new URL(rpcUrl);
+  for (const origin of corsOrigins.split(",")) new URL(origin.trim());
   for (const url of rpcUrls) new URL(url);
   const uniqueRpcUrls = [...new Set(rpcUrls)];
   if (uniqueRpcUrls.length !== rpcUrls.length)
@@ -55,6 +57,7 @@ export function validateEnvironment(env: Environment): Environment {
     REDIS_URL: redisUrl,
     RPC_URL: rpcUrl,
     RPC_URLS: uniqueRpcUrls.join(","),
+    CORS_ORIGINS: corsOrigins,
     PUMP_FACTORY_ADDRESS: factory,
     CHAIN_ID: positiveInteger(env, "CHAIN_ID", 31337),
     INDEXER_CONFIRMATIONS: positiveInteger(env, "INDEXER_CONFIRMATIONS", 12),

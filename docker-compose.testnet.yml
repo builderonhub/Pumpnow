@@ -35,6 +35,7 @@ services:
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/pumpnow_testnet
       REDIS_URL: redis://redis:6379
+      CORS_ORIGINS: ${CORS_ORIGINS}
       RPC_URL: ${RPC_URL}
       RPC_URLS: ${RPC_URLS:-${RPC_URL}}
       CHAIN_ID: ${CHAIN_ID}

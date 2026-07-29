@@ -85,6 +85,7 @@ services:
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/pumpnow
       REDIS_URL: redis://redis:6379
+      CORS_ORIGINS: ${CORS_ORIGINS}
       RPC_URL: ${RPC_URL}
       CHAIN_ID: ${CHAIN_ID:-31337}
       PUMP_FACTORY_ADDRESS: ${PUMP_FACTORY_ADDRESS}

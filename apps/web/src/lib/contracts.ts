@@ -6,6 +6,7 @@ const rpcUrls = (process.env.NEXT_PUBLIC_RPC_URLS ?? process.env.NEXT_PUBLIC_RPC
   .map((value) => value.trim())
   .filter(Boolean);
 const factoryAddressValue = process.env.NEXT_PUBLIC_PUMP_FACTORY_ADDRESS;
+export const blockExplorerUrl = process.env.NEXT_PUBLIC_BLOCK_EXPLORER_URL?.replace(/\/$/, "");
 
 export const chainConfigError =
   !Number.isSafeInteger(chainId) || chainId <= 0
@@ -36,6 +37,10 @@ export const pumpFactoryAbi = [
 ] as const;
 
 export const pumpPairAbi = [
+  { type: "function", name: "basePrice", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "uint256" }] },
+  { type: "function", name: "slope", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "uint256" }] },
+  { type: "function", name: "tokensSold", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "uint256" }] },
+  { type: "function", name: "feeBps", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "uint16" }] },
   { type: "function", name: "quoteBuy", stateMutability: "view", inputs: [{ name: "tokenAmount", type: "uint256" }], outputs: [{ name: "curveCost", type: "uint256" }, { name: "fee", type: "uint256" }, { name: "totalCost", type: "uint256" }] },
   { type: "function", name: "quoteSell", stateMutability: "view", inputs: [{ name: "tokenAmount", type: "uint256" }], outputs: [{ name: "grossOutput", type: "uint256" }, { name: "fee", type: "uint256" }, { name: "netOutput", type: "uint256" }] },
   { type: "function", name: "buy", stateMutability: "payable", inputs: [{ name: "tokenAmount", type: "uint256" }, { name: "maxNativeInput", type: "uint256" }], outputs: [{ name: "totalCost", type: "uint256" }] },

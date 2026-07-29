@@ -17,6 +17,7 @@ export function DexSwapPanel({ tokenAddress, poolAddress, decimals }: { tokenAdd
   const [error, setError] = useState<string>();
   const [quote, setQuote] = useState<string>();
   const [hash, setHash] = useState<Hash>();
+  const [maxLoading, setMaxLoading] = useState(false);
   const { address, isConnected } = useAccount();
   const nativeBalance = useBalance({ address, chainId: pumpNowChain.id, query: { enabled: Boolean(address) } });
   const chainId = useChainId();
@@ -26,6 +27,29 @@ export function DexSwapPanel({ tokenAddress, poolAddress, decimals }: { tokenAdd
   const receipt = useWaitForTransactionReceipt({ hash });
   const queryClient = useQueryClient();
   const valid = isAddress(tokenAddress) && isAddress(poolAddress);
+
+  async function setMaximum(): Promise<void> {
+    setError(undefined); setQuote(undefined);
+    if (!isConnected || !address) return setError("Connect your wallet first.");
+    if (chainId !== pumpNowChain.id) return switchChain({ chainId: pumpNowChain.id });
+    if (!publicClient || !valid) return setError("DEX pool address is unavailable.");
+    setMaxLoading(true);
+    try {
+      if (side === "native-to-token") {
+        const balance = await publicClient.getBalance({ address });
+        const spendable = balance - balance / 100n;
+        if (spendable <= 0n) throw new Error(`Insufficient ${pumpNowChain.nativeCurrency.symbol} balance after reserving gas.`);
+        setAmount(formatUnits(spendable, 18));
+      } else {
+        const balance = await publicClient.readContract({ address: tokenAddress as Address, abi: erc20Abi, functionName: "balanceOf", args: [address] });
+        setAmount(formatUnits(balance, decimals));
+      }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message.split("\n")[0] : "Unable to read wallet balance.");
+    } finally {
+      setMaxLoading(false);
+    }
+  }
 
   async function swap(): Promise<void> {
     setError(undefined); setQuote(undefined); setHash(undefined);
@@ -80,5 +104,5 @@ export function DexSwapPanel({ tokenAddress, poolAddress, decimals }: { tokenAdd
     ]);
   }, [queryClient, receipt.isSuccess, tokenAddress]);
   const pending = write.isPending || receipt.isLoading;
-  return <aside className="panel trade-panel dex-swap-panel"><div className="dex-panel-heading"><span className="kicker">PUMPNOW DEX</span><span className="dex-live">LIVE MARKET</span></div><h2>Swap graduated token</h2><p>The bonding curve is complete. This token now trades against {pumpNowChain.nativeCurrency.symbol} in its permanent PumpNow DEX pool.</p><div className="trade-tabs"><button type="button" className={side === "native-to-token" ? "active" : ""} onClick={() => { setSide("native-to-token"); setError(undefined); setQuote(undefined); }}>Buy</button><button type="button" className={side === "token-to-native" ? "active" : ""} onClick={() => { setSide("token-to-native"); setError(undefined); setQuote(undefined); }}>Sell</button></div><label>{side === "native-to-token" ? `${pumpNowChain.nativeCurrency.symbol} amount` : "Token amount"}<input inputMode="decimal" value={amount} onChange={(event) => { setAmount(event.target.value); setError(undefined); setQuote(undefined); }} placeholder="0.00" />{side === "native-to-token" && nativeBalance.data ? <small className="balance-hint">Available: {Number(formatUnits(nativeBalance.data.value, nativeBalance.data.decimals)).toLocaleString(undefined, { maximumFractionDigits: 6 })} {nativeBalance.data.symbol}</small> : null}</label><label>Slippage<select value={slippageBps} onChange={(event) => setSlippageBps(Number(event.target.value))}><option value={50}>0.5%</option><option value={100}>1%</option><option value={300}>3%</option></select></label>{quote ? <p>Estimated output: <b>{quote}</b></p> : null}{error ? <p className="swap-error" role="alert">{error}</p> : null}<button className="primary-button" type="button" disabled={!valid || pending} onClick={() => void swap()}>{!isConnected ? "Connect wallet first" : chainId !== pumpNowChain.id ? "Switch network" : pending ? "Confirming swap…" : side === "native-to-token" ? "Buy on DEX" : "Sell on DEX"}</button><Link className="dex-market-link" href="/dex">View all DEX markets →</Link><TransactionStatus hash={hash} pending={pending} label={receipt.isSuccess ? "Swap confirmed. Waiting for indexed market data." : undefined} error={receipt.error?.message.split("\n")[0]} /></aside>;
+  return <aside className="panel trade-panel dex-swap-panel"><div className="dex-panel-heading"><span className="kicker">PUMPNOW DEX</span><span className="dex-live">LIVE MARKET</span></div><h2>Swap graduated token</h2><p>The bonding curve is complete. This token now trades against {pumpNowChain.nativeCurrency.symbol} in its permanent PumpNow DEX pool.</p><div className="trade-tabs"><button type="button" className={side === "native-to-token" ? "active" : ""} onClick={() => { setSide("native-to-token"); setAmount(""); setError(undefined); setQuote(undefined); }}>Buy</button><button type="button" className={side === "token-to-native" ? "active" : ""} onClick={() => { setSide("token-to-native"); setAmount(""); setError(undefined); setQuote(undefined); }}>Sell</button></div><label><span className="amount-label"><span>{side === "native-to-token" ? `${pumpNowChain.nativeCurrency.symbol} amount to spend` : "Token amount to sell"} <b>{side === "native-to-token" ? pumpNowChain.nativeCurrency.symbol : "TOKEN"}</b></span><button type="button" disabled={maxLoading} onClick={() => void setMaximum()}>{maxLoading ? "…" : "MAX"}</button></span><input inputMode="decimal" value={amount} onChange={(event) => { setAmount(event.target.value); setError(undefined); setQuote(undefined); }} placeholder={side === "native-to-token" ? `Enter ${pumpNowChain.nativeCurrency.symbol} amount` : "Enter token quantity"} />{side === "native-to-token" && nativeBalance.data ? <small className="balance-hint">Available: {Number(formatUnits(nativeBalance.data.value, nativeBalance.data.decimals)).toLocaleString(undefined, { maximumFractionDigits: 6 })} {nativeBalance.data.symbol}</small> : null}</label><label>Slippage<select value={slippageBps} onChange={(event) => setSlippageBps(Number(event.target.value))}><option value={50}>0.5%</option><option value={100}>1%</option><option value={300}>3%</option></select></label>{quote ? <p>Estimated output: <b>{quote}</b></p> : null}{error ? <p className="swap-error" role="alert">{error}</p> : null}<button className="primary-button" type="button" disabled={!valid || pending} onClick={() => void swap()}>{!isConnected ? "Connect wallet first" : chainId !== pumpNowChain.id ? "Switch network" : pending ? "Confirming swap…" : side === "native-to-token" ? "Buy on DEX" : "Sell on DEX"}</button><Link className="dex-market-link" href="/dex">View all DEX markets →</Link><TransactionStatus hash={hash} pending={pending} label={receipt.isSuccess ? "Swap confirmed. Waiting for indexed market data." : undefined} error={receipt.error?.message.split("\n")[0]} /></aside>;
 }

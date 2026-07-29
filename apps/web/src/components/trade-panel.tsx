@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { isAddress, parseUnits, type Address, type Hash } from "viem";
+import { formatUnits, isAddress, parseUnits, type Address, type Hash } from "viem";
 import { useAccount, useChainId, usePublicClient, useSwitchChain, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
 import { erc20Abi, pumpNowChain, pumpPairAbi } from "@/lib/contracts";
 import { TransactionStatus } from "@/components/transaction-status";
@@ -16,6 +16,7 @@ export function TradePanel({ tokenAddress, pairAddress, decimals, disabled = fal
   const [error, setError] = useState<string>();
   const [finalHash, setFinalHash] = useState<Hash>();
   const [slippageBps, setSlippageBps] = useState(100);
+  const [maxLoading, setMaxLoading] = useState(false);
   const { address: walletAddress, isConnected } = useAccount();
   const chainId = useChainId();
   const { switchChain } = useSwitchChain();
@@ -24,6 +25,54 @@ export function TradePanel({ tokenAddress, pairAddress, decimals, disabled = fal
   const write = useWriteContract();
   const receipt = useWaitForTransactionReceipt({ hash: finalHash });
   const validAddresses = isAddress(tokenAddress) && Boolean(pairAddress && isAddress(pairAddress));
+
+  async function setMaximum(): Promise<void> {
+    setError(undefined);
+    if (!isConnected || !walletAddress) return setError("Connect your wallet first.");
+    if (chainId !== pumpNowChain.id) { switchChain({ chainId: pumpNowChain.id }); return; }
+    if (!publicClient || !validAddresses || !pairAddress) return setError("Contract addresses are unavailable or invalid.");
+    setMaxLoading(true);
+    const token = tokenAddress as Address;
+    const pair = pairAddress as Address;
+    try {
+      if (side === "sell") {
+        const balance = await publicClient.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [walletAddress] });
+        setAmount(formatUnits(balance, decimals));
+        return;
+      }
+
+      const [nativeBalance, inventory, basePrice, slope, sold, feeBps] = await Promise.all([
+        publicClient.getBalance({ address: walletAddress }),
+        publicClient.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [pair] }),
+        publicClient.readContract({ address: pair, abi: pumpPairAbi, functionName: "basePrice" }),
+        publicClient.readContract({ address: pair, abi: pumpPairAbi, functionName: "slope" }),
+        publicClient.readContract({ address: pair, abi: pumpPairAbi, functionName: "tokensSold" }),
+        publicClient.readContract({ address: pair, abi: pumpPairAbi, functionName: "feeBps" }),
+      ]);
+      const spendable = nativeBalance - nativeBalance / 100n;
+      const wad = 10n ** 18n;
+      const affordable = (tokenAmount: bigint) => {
+        const toSold = sold + tokenAmount;
+        const curveCost = basePrice * tokenAmount / wad + slope * (toSold * toSold - sold * sold) / (2n * wad * wad);
+        const totalCost = curveCost + curveCost * BigInt(feeBps) / 10_000n;
+        const withSlippage = totalCost + totalCost * BigInt(slippageBps) / 10_000n;
+        return withSlippage <= spendable;
+      };
+      let low = 0n;
+      let high = inventory;
+      while (low < high) {
+        const middle = (low + high + 1n) / 2n;
+        if (affordable(middle)) low = middle;
+        else high = middle - 1n;
+      }
+      if (low === 0n) throw new Error(`Insufficient ${pumpNowChain.nativeCurrency.symbol} balance after reserving gas.`);
+      setAmount(formatUnits(low, decimals));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message.split("\n")[0] : "Unable to calculate maximum amount.");
+    } finally {
+      setMaxLoading(false);
+    }
+  }
 
   useEffect(() => {
     if (!receipt.isSuccess) return;
@@ -80,5 +129,5 @@ export function TradePanel({ tokenAddress, pairAddress, decimals, disabled = fal
   const pending = (phase !== "idle" && !receipt.isSuccess) || receipt.isLoading;
   const displayPhase = receipt.isSuccess ? "idle" : phase;
   const button = !isConnected ? "Connect wallet first" : chainId !== pumpNowChain.id ? "Switch network" : displayPhase === "approving" ? "Approving token…" : displayPhase === "selling" ? "Confirm sell…" : displayPhase === "buying" ? "Confirm buy…" : side === "buy" ? "Buy token" : "Approve & sell";
-  return <aside className="panel trade-panel"><span className="kicker">TRADE</span><h2>{disabled ? "Trading closed" : "Buy or sell"}</h2><p>{disabled ? "This token graduated to its DEX pool. Bonding-curve buy and sell are permanently disabled." : "Quotes prepare the transaction; displayed market data comes from the API."}</p><div className="trade-tabs"><button type="button" className={side === "buy" ? "active" : ""} onClick={() => setSide("buy")}>Buy</button><button type="button" className={side === "sell" ? "active" : ""} onClick={() => setSide("sell")}>Sell</button></div><label>Token amount<input inputMode="decimal" placeholder="0.00" value={amount} onChange={(event) => setAmount(event.target.value)} /></label><label>Slippage<select value={slippageBps} onChange={(event) => setSlippageBps(Number(event.target.value))}><option value={50}>0.5%</option><option value={100}>1%</option><option value={300}>3%</option></select></label><button className="primary-button" type="button" disabled={disabled || pending || !validAddresses} onClick={() => void trade()}>{disabled ? "Graduated" : button}</button><TransactionStatus hash={finalHash} pending={pending} label={receipt.isSuccess ? "Confirmed. Refreshing indexed API data." : undefined} error={error ?? (receipt.error?.message.split("\n")[0])} /></aside>;
+  return <aside className="panel trade-panel"><span className="kicker">TRADE</span><h2>{disabled ? "Trading closed" : "Buy or sell"}</h2><p>{disabled ? "This token graduated to its DEX pool. Bonding-curve buy and sell are permanently disabled." : "Enter the token quantity below. Your wallet pays or receives USDC based on the live bonding-curve quote."}</p><div className="trade-tabs"><button type="button" className={side === "buy" ? "active" : ""} onClick={() => { setSide("buy"); setAmount(""); setError(undefined); }}>Buy</button><button type="button" className={side === "sell" ? "active" : ""} onClick={() => { setSide("sell"); setAmount(""); setError(undefined); }}>Sell</button></div><label><span className="amount-label"><span>{side === "buy" ? "Token amount to buy" : "Token amount to sell"} <b>TOKEN</b></span><button type="button" disabled={disabled || maxLoading} onClick={() => void setMaximum()}>{maxLoading ? "…" : "MAX"}</button></span><input inputMode="decimal" placeholder="Enter token quantity" value={amount} onChange={(event) => setAmount(event.target.value)} /></label><label>Slippage<select value={slippageBps} onChange={(event) => setSlippageBps(Number(event.target.value))}><option value={50}>0.5%</option><option value={100}>1%</option><option value={300}>3%</option></select></label><button className="primary-button" type="button" disabled={disabled || pending || !validAddresses} onClick={() => void trade()}>{disabled ? "Graduated" : button}</button><TransactionStatus hash={finalHash} pending={pending} label={receipt.isSuccess ? "Confirmed. Refreshing indexed API data." : undefined} error={error ?? (receipt.error?.message.split("\n")[0])} /></aside>;
 }

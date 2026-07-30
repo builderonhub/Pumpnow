@@ -41,11 +41,7 @@ contract DeployDexReady {
             usdc, positionManager, uint24(poolFee), int24(lower), int24(upper), uint160(sqrtPrice)
         );
         factory = new PumpFactory(
-            uint16(feeBps),
-            vm.envUint("BASE_PRICE"),
-            uint16(virtualTokenBps),
-            uint16(graduationBps),
-            address(adapter)
+            uint16(feeBps), vm.envUint("BASE_PRICE"), uint16(virtualTokenBps), uint16(graduationBps), address(adapter)
         );
         adapter.setFactory(address(factory));
         vm.stopBroadcast();

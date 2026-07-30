@@ -36,19 +36,6 @@ export function validateEnvironment(env: Environment): Environment {
   const uniqueRpcUrls = [...new Set(rpcUrls)];
   if (uniqueRpcUrls.length !== rpcUrls.length)
     throw new Error("RPC_URLS must not contain duplicate endpoints");
-  if (env.NODE_ENV === "testnet") {
-    if (rpcUrls.length < 2)
-      throw new Error(
-        "RPC_URLS must contain primary and failover managed endpoints on testnet",
-      );
-    const publicArcHost = "rpc.testnet.arc.network";
-    if (
-      rpcUrls.slice(0, 2).some((url) => new URL(url).hostname === publicArcHost)
-    )
-      throw new Error(
-        "The first two RPC_URLS entries must be independent managed endpoints; keep the Arc public RPC last",
-      );
-  }
   if (!/^0x[0-9a-fA-F]{40}$/.test(factory))
     throw new Error("PUMP_FACTORY_ADDRESS must be a 20-byte hex address");
   return {

@@ -32,8 +32,9 @@ contract DeployPumpDexTestnet {
         dex = new PumpDexFactory(uint16(dexFeeBps));
         adapter = new PumpDexAdapter(address(dex));
         dex.setPoolCreator(address(adapter));
-        factory =
-            new PumpFactory(uint16(tradeFeeBps), basePrice, uint16(virtualTokenBps), uint16(graduationBps), address(adapter));
+        factory = new PumpFactory(
+            uint16(tradeFeeBps), basePrice, uint16(virtualTokenBps), uint16(graduationBps), address(adapter)
+        );
         adapter.setFactory(address(factory));
         vm.stopBroadcast();
     }

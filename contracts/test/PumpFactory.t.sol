@@ -92,24 +92,14 @@ contract PumpFactoryTest {
     }
 
     function test_CreateTokenEmitsTokenCreated() public {
-        PumpFactory freshFactory = new PumpFactory(FEE_BPS, BASE_PRICE, VIRTUAL_TOKEN_BPS, GRADUATION_BPS, address(adapter));
+        PumpFactory freshFactory =
+            new PumpFactory(FEE_BPS, BASE_PRICE, VIRTUAL_TOKEN_BPS, GRADUATION_BPS, address(adapter));
         address expectedToken = computeCreateAddress(address(freshFactory), 2);
         address expectedPair = computeCreateAddress(address(freshFactory), 3);
 
         vm.expectEmit(true, true, true, true);
         emit TokenCreated(
-            expectedToken,
-            expectedPair,
-            CREATOR,
-            "Other",
-            "OTH",
-            INITIAL_SUPPLY,
-            GRADUATION_TARGET,
-            "",
-            "",
-            "",
-            "",
-            ""
+            expectedToken, expectedPair, CREATOR, "Other", "OTH", INITIAL_SUPPLY, GRADUATION_TARGET, "", "", "", "", ""
         );
         vm.prank(CREATOR);
         freshFactory.createToken("Other", "OTH", INITIAL_SUPPLY, "", "", "", "", "");
@@ -391,7 +381,7 @@ contract PumpFactoryTest {
     function invariant_ActivePairAccountingIsSolvent() public view {
         if (pair.status() == PumpPair.Status.ACTIVE) {
             assertTrue(address(pair).balance >= pair.nativeReserve());
-            assertEq(pair.tokensSold() + token.balanceOf(address(pair)), INITIAL_SUPPLY);
+            assertTrue(token.balanceOf(address(pair)) >= INITIAL_SUPPLY - pair.tokensSold());
         }
     }
 

@@ -6,6 +6,7 @@ import { formatUnits, isAddress, parseUnits, type Address, type Hash } from "vie
 import { useAccount, useChainId, usePublicClient, useSwitchChain, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
 import { erc20Abi, pumpNowChain, pumpPairAbi } from "@/lib/contracts";
 import { TransactionStatus } from "@/components/transaction-status";
+import { api } from "@/lib/api";
 
 type Phase = "idle" | "approving" | "selling" | "buying";
 type LiveQuote = { amount: string; fee: string };
@@ -23,6 +24,8 @@ export function TradePanel({ tokenAddress, pairAddress, decimals, disabled = fal
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string>();
   const [finalHash, setFinalHash] = useState<Hash>();
+  const [approvalHash, setApprovalHash] = useState<Hash>();
+  const [approvalConfirmed, setApprovalConfirmed] = useState(false);
   const [slippageBps, setSlippageBps] = useState(100);
   const [maxLoading, setMaxLoading] = useState(false);
   const [liveQuote, setLiveQuote] = useState<LiveQuote>();
@@ -96,15 +99,38 @@ export function TradePanel({ tokenAddress, pairAddress, decimals, disabled = fal
   }
 
   useEffect(() => {
-    if (!receipt.isSuccess) return;
-    void Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["token", tokenAddress.toLowerCase()] }),
-      queryClient.invalidateQueries({ queryKey: ["trades", tokenAddress.toLowerCase()] }),
-      queryClient.invalidateQueries({ queryKey: ["holders", tokenAddress.toLowerCase()] }),
+    if (!receipt.isSuccess || !finalHash) return;
+    let cancelled = false;
+    const address = tokenAddress.toLowerCase();
+    const refresh = () => Promise.all([
+      queryClient.refetchQueries({ queryKey: ["token", address], type: "active" }),
+      queryClient.refetchQueries({ queryKey: ["trades", address], type: "active" }),
+      queryClient.refetchQueries({ queryKey: ["holders", address], type: "active" }),
       queryClient.invalidateQueries({ queryKey: ["tokens"] }),
       queryClient.invalidateQueries({ queryKey: ["stats"] }),
+      queryClient.invalidateQueries({ queryKey: ["portfolio"] }),
     ]);
-  }, [queryClient, receipt.isSuccess, tokenAddress]);
+    void (async () => {
+      await refresh();
+      for (let attempt = 0; attempt < 30 && !cancelled; attempt += 1) {
+        try {
+          const indexedTrades = await api.trades(address);
+          const indexed = indexedTrades.data.some(
+            (trade) => trade.transactionHash.toLowerCase() === finalHash.toLowerCase(),
+          );
+          if (indexed) {
+            await refresh();
+            return;
+          }
+        } catch {
+          // Keep polling while the API/indexer catches up with the confirmed block.
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 1_000));
+      }
+      if (!cancelled) await refresh();
+    })();
+    return () => { cancelled = true; };
+  }, [finalHash, queryClient, receipt.isSuccess, tokenAddress]);
 
   async function trade(): Promise<void> {
     setError(undefined); setFinalHash(undefined);
@@ -133,9 +159,14 @@ export function TradePanel({ tokenAddress, pairAddress, decimals, disabled = fal
         const allowance = await publicClient.readContract({ address: token, abi: erc20Abi, functionName: "allowance", args: [walletAddress!, pair] });
         if (allowance < tokenAmount) {
           const approvalHash = await write.writeContractAsync({ address: token, abi: erc20Abi, functionName: "approve", args: [pair, tokenAmount], chainId: pumpNowChain.id });
+          setApprovalHash(approvalHash);
           const approvalReceipt = await publicClient.waitForTransactionReceipt({ hash: approvalHash });
           if (approvalReceipt.status !== "success") throw new Error("Token approval failed.");
+          setApprovalConfirmed(true);
+          setPhase("idle");
+          return;
         }
+        setApprovalConfirmed(false);
         setPhase("selling");
         const quote = await publicClient.readContract({ address: pair, abi: pumpPairAbi, functionName: "quoteSell", args: [tokenAmount] });
         const minOutput = quote[2] - (quote[2] * BigInt(slippageBps)) / 10_000n;
@@ -150,6 +181,6 @@ export function TradePanel({ tokenAddress, pairAddress, decimals, disabled = fal
 
   const pending = (phase !== "idle" && !receipt.isSuccess) || receipt.isLoading;
   const displayPhase = receipt.isSuccess ? "idle" : phase;
-  const button = !isConnected ? "Connect wallet first" : chainId !== pumpNowChain.id ? "Switch network" : displayPhase === "approving" ? "Approving token…" : displayPhase === "selling" ? "Confirm sell…" : displayPhase === "buying" ? "Confirm buy…" : side === "buy" ? "Buy token" : "Approve & sell";
-  return <aside className="panel trade-panel"><span className="kicker">TRADE</span><h2>{disabled ? "Trading closed" : "Buy or sell"}</h2><p>{disabled ? "This token graduated to its DEX pool. Bonding-curve buy and sell are permanently disabled." : side === "buy" ? `Enter how much ${pumpNowChain.nativeCurrency.symbol} to spend. The curve calculates the token output.` : `Enter the token quantity to sell. The curve calculates the ${pumpNowChain.nativeCurrency.symbol} output.`}</p><div className="trade-tabs"><button type="button" className={side === "buy" ? "active" : ""} onClick={() => { setSide("buy"); setAmount(""); setLiveQuote(undefined); setError(undefined); }}>Buy</button><button type="button" className={side === "sell" ? "active" : ""} onClick={() => { setSide("sell"); setAmount(""); setLiveQuote(undefined); setError(undefined); }}>Sell</button></div><label><span className="amount-label"><span>{side === "buy" ? "Amount to spend" : "Token amount to sell"} <b>{side === "buy" ? pumpNowChain.nativeCurrency.symbol : "TOKEN"}</b></span><button type="button" disabled={disabled || maxLoading} onClick={() => void setMaximum()}>{maxLoading ? "…" : "MAX"}</button></span><input inputMode="decimal" placeholder={side === "buy" ? `Enter ${pumpNowChain.nativeCurrency.symbol} amount` : "Enter token quantity"} value={amount} onChange={(event) => { setAmount(event.target.value); setLiveQuote(undefined); }} /></label>{amount.trim() ? <div className={`live-quote${quoteLoading ? " loading" : ""}`} aria-live="polite"><span>You receive</span><strong>{quoteLoading ? "Calculating…" : liveQuote ? `≈ ${liveQuote.amount} ${side === "buy" ? "TOKEN" : pumpNowChain.nativeCurrency.symbol}` : "Quote unavailable"}</strong>{liveQuote ? <small>{side === "buy" ? "Fee" : "After deducting fee"}: {liveQuote.fee} {pumpNowChain.nativeCurrency.symbol}</small> : null}</div> : null}<label>Slippage<select value={slippageBps} onChange={(event) => setSlippageBps(Number(event.target.value))}><option value={50}>0.5%</option><option value={100}>1%</option><option value={300}>3%</option></select></label><button className="primary-button" type="button" disabled={disabled || pending || !validAddresses} onClick={() => void trade()}>{disabled ? "Graduated" : button}</button><TransactionStatus hash={finalHash} pending={pending} label={receipt.isSuccess ? "Confirmed. Refreshing indexed API data." : undefined} error={error ?? (receipt.error?.message.split("\n")[0])} /></aside>;
+  const button = !isConnected ? "Connect wallet first" : chainId !== pumpNowChain.id ? "Switch network" : displayPhase === "approving" ? "Approving token…" : displayPhase === "selling" ? "Confirm sell…" : displayPhase === "buying" ? "Confirm buy…" : side === "buy" ? "Buy token" : approvalConfirmed ? "Sell token now" : "Approve token";
+  return <aside className="panel trade-panel"><span className="kicker">TRADE</span><h2>{disabled ? "Trading closed" : "Buy or sell"}</h2><p>{disabled ? "This token graduated to its DEX pool. Bonding-curve buy and sell are permanently disabled." : side === "buy" ? `Enter how much ${pumpNowChain.nativeCurrency.symbol} to spend. The curve calculates the token output.` : `Enter the token quantity to sell. First approve the pair, then confirm the sell transaction.`}</p><div className="trade-tabs"><button type="button" className={side === "buy" ? "active" : ""} onClick={() => { setSide("buy"); setAmount(""); setLiveQuote(undefined); setError(undefined); setApprovalConfirmed(false); }}>Buy</button><button type="button" className={side === "sell" ? "active" : ""} onClick={() => { setSide("sell"); setAmount(""); setLiveQuote(undefined); setError(undefined); setApprovalConfirmed(false); }}>Sell</button></div><label><span className="amount-label"><span>{side === "buy" ? "Amount to spend" : "Token amount to sell"} <b>{side === "buy" ? pumpNowChain.nativeCurrency.symbol : "TOKEN"}</b></span><button type="button" disabled={disabled || maxLoading} onClick={() => void setMaximum()}>{maxLoading ? "…" : "MAX"}</button></span><input inputMode="decimal" placeholder={side === "buy" ? `Enter ${pumpNowChain.nativeCurrency.symbol} amount` : "Enter token quantity"} value={amount} onChange={(event) => { setAmount(event.target.value); setLiveQuote(undefined); setApprovalConfirmed(false); }} /></label>{amount.trim() ? <div className={`live-quote${quoteLoading ? " loading" : ""}`} aria-live="polite"><span>You receive</span><strong>{quoteLoading ? "Calculating…" : liveQuote ? `≈ ${liveQuote.amount} ${side === "buy" ? "TOKEN" : pumpNowChain.nativeCurrency.symbol}` : "Quote unavailable"}</strong>{liveQuote ? <small>{side === "buy" ? "Fee" : "After deducting fee"}: {liveQuote.fee} {pumpNowChain.nativeCurrency.symbol}</small> : null}</div> : null}{approvalConfirmed ? <div className="approval-ready"><b>Token approved.</b><span>Click “Sell token now” to complete the sale.</span></div> : null}<label>Slippage<select value={slippageBps} onChange={(event) => setSlippageBps(Number(event.target.value))}><option value={50}>0.5%</option><option value={100}>1%</option><option value={300}>3%</option></select></label><button className="primary-button" type="button" disabled={disabled || pending || !validAddresses} onClick={() => void trade()}>{disabled ? "Graduated" : button}</button><TransactionStatus hash={finalHash ?? approvalHash} pending={pending} label={approvalConfirmed ? "Approval confirmed." : receipt.isSuccess ? "Confirmed. Refreshing indexed API data." : undefined} error={error ?? (receipt.error?.message.split("\n")[0])} /></aside>;
 }

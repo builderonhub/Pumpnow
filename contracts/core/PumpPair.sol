@@ -87,8 +87,7 @@ contract PumpPair is ReentrancyGuard, Pausable {
         if (feeBps_ > MAX_FEE_BPS) revert InvalidFeeBps();
         if (
             initialVirtualTokenReserve_ <= initialSupply_ || initialVirtualNativeReserve_ == 0 || initialSupply_ == 0
-                || graduationTokenAmount_ == 0
-                || graduationTokenAmount_ >= initialSupply_
+                || graduationTokenAmount_ == 0 || graduationTokenAmount_ >= initialSupply_
         ) revert InvalidCurveParameters();
         token = IMemeToken(token_);
         treasury = ITreasury(treasury_);

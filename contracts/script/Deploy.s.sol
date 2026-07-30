@@ -21,7 +21,9 @@ contract Deploy {
         uint256 basePrice = vm.envUint("BASE_PRICE");
         uint256 virtualTokenBps = vm.envUint("VIRTUAL_TOKEN_BPS");
         uint256 graduationBps = vm.envUint("GRADUATION_BPS");
-        if (feeBps > type(uint16).max || virtualTokenBps > type(uint16).max || graduationBps > type(uint16).max) revert FeeBpsOutOfRange();
+        if (feeBps > type(uint16).max || virtualTokenBps > type(uint16).max || graduationBps > type(uint16).max) {
+            revert FeeBpsOutOfRange();
+        }
 
         vm.startBroadcast();
         // forge-lint: disable-next-line(unsafe-typecast)

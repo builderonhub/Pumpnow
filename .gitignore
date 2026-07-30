@@ -16,6 +16,7 @@ node_modules/
 # Build output and caches
 .next/
 .turbo/
+.tools/
 dist/
 out/
 coverage/

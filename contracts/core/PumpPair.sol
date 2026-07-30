@@ -126,6 +126,9 @@ contract PumpPair is ReentrancyGuard, Pausable {
         uint256 invariant = virtualTokenReserve * virtualNativeReserve;
         uint256 nextVirtualNative = invariant / (virtualTokenReserve + tokenAmount);
         grossOutput = virtualNativeReserve - nextVirtualNative;
+        // Integer rounding across prior buys can make a full unwind exceed the
+        // real reserve by one wei. Never quote more native value than exists.
+        if (grossOutput > nativeReserve) grossOutput = nativeReserve;
         fee = grossOutput * feeBps / BPS_DENOMINATOR;
         netOutput = grossOutput - fee;
     }

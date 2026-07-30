@@ -168,6 +168,22 @@ contract PumpFactoryTest {
         assertTrue(address(treasury).balance >= sellFee);
     }
 
+    function test_FullSellQuoteNeverExceedsRealReserveAfterExactNativeBuy() public {
+        uint256 nativeInput = 80 ether;
+        (uint256 tokenOutput,,) = pair.quoteBuyExactNative(nativeInput);
+        vm.startPrank(TRADER);
+        pair.buyExactNative{value: nativeInput}(tokenOutput);
+        token.approve(address(pair), tokenOutput);
+        (uint256 grossOutput,, uint256 netOutput) = pair.quoteSell(tokenOutput);
+
+        assertTrue(grossOutput <= pair.nativeReserve());
+        pair.sell(tokenOutput, netOutput);
+        vm.stopPrank();
+
+        assertEq(pair.tokensSold(), 0);
+        assertEq(pair.nativeReserve(), 0);
+    }
+
     function test_RevertBuyWhenMaxInputBelowQuote() public {
         (,, uint256 totalCost) = pair.quoteBuy(1 ether);
         vm.expectRevert(PumpPair.SlippageExceeded.selector);

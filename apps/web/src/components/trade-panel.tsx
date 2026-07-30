@@ -40,6 +40,23 @@ export function TradePanel({ tokenAddress, pairAddress, decimals, disabled = fal
   const validAddresses = isAddress(tokenAddress) && Boolean(pairAddress && isAddress(pairAddress));
 
   useEffect(() => {
+    if (side !== "sell" || !publicClient || !walletAddress || !pairAddress || !isAddress(pairAddress) || !amount.trim()) {
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      try {
+        const tokenAmount = parseUnits(amount, decimals);
+        const allowance = await publicClient.readContract({ address: tokenAddress as Address, abi: erc20Abi, functionName: "allowance", args: [walletAddress, pairAddress as Address] });
+        if (!cancelled) setApprovalConfirmed(allowance >= tokenAmount);
+      } catch {
+        if (!cancelled) setApprovalConfirmed(false);
+      }
+    }, 250);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [amount, decimals, pairAddress, publicClient, side, tokenAddress, walletAddress]);
+
+  useEffect(() => {
     if (!publicClient || !pairAddress || !isAddress(pairAddress) || !amount.trim()) {
       return;
     }
@@ -83,7 +100,11 @@ export function TradePanel({ tokenAddress, pairAddress, decimals, disabled = fal
     try {
       if (side === "sell") {
         const balance = await publicClient.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [walletAddress] });
-        setAmount(formatUnits(balance, decimals));
+        // Legacy pairs can round a full unwind one wei above their real native
+        // reserve. Leaving one indivisible token unit avoids that revert while
+        // being economically identical to selling the full wallet balance.
+        const safeMaximum = balance > 1n ? balance - 1n : balance;
+        setAmount(formatUnits(safeMaximum, decimals));
         return;
       }
 
@@ -158,7 +179,7 @@ export function TradePanel({ tokenAddress, pairAddress, decimals, disabled = fal
         setPhase("approving");
         const allowance = await publicClient.readContract({ address: token, abi: erc20Abi, functionName: "allowance", args: [walletAddress!, pair] });
         if (allowance < tokenAmount) {
-          const approvalHash = await write.writeContractAsync({ address: token, abi: erc20Abi, functionName: "approve", args: [pair, maxUint256], chainId: pumpNowChain.id });
+          const approvalHash = await write.writeContractAsync({ address: token, abi: erc20Abi, functionName: "approve", args: [pair, maxUint256], chainId: pumpNowChain.id, gas: 150_000n });
           setApprovalHash(approvalHash);
           try {
             const approvalReceipt = await publicClient.waitForTransactionReceipt({ hash: approvalHash, confirmations: 1, pollingInterval: 1_500, timeout: 120_000 });
@@ -186,7 +207,7 @@ export function TradePanel({ tokenAddress, pairAddress, decimals, disabled = fal
         setPhase("selling");
         const quote = await publicClient.readContract({ address: pair, abi: pumpPairAbi, functionName: "quoteSell", args: [tokenAmount] });
         const minOutput = quote[2] - (quote[2] * BigInt(slippageBps)) / 10_000n;
-        const hash = await write.writeContractAsync({ address: pair, abi: pumpPairAbi, functionName: "sell", args: [tokenAmount, minOutput], chainId: pumpNowChain.id });
+        const hash = await write.writeContractAsync({ address: pair, abi: pumpPairAbi, functionName: "sell", args: [tokenAmount, minOutput], chainId: pumpNowChain.id, gas: 500_000n });
         setFinalHash(hash);
       }
     } catch (caught) {

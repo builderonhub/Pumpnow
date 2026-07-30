@@ -12,7 +12,7 @@ const wagmiConfig = createConfig({
   connectors: [injected()],
   transports: {
     [pumpNowChain.id]: fallback(
-      pumpNowChain.rpcUrls.default.http.map((url) => http(url, { retryCount: 3, retryDelay: 500 })),
+      [http("/api/rpc", { retryCount: 3, retryDelay: 500 }), ...pumpNowChain.rpcUrls.default.http.map((url) => http(url, { retryCount: 3, retryDelay: 500 }))],
       { rank: true },
     ),
   },

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { formatUnits, isAddress, parseUnits, type Address, type Hash } from "viem";
+import { formatUnits, isAddress, maxUint256, parseUnits, type Address, type Hash } from "viem";
 import { useAccount, useChainId, usePublicClient, useSwitchChain, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
 import { erc20Abi, pumpNowChain, pumpPairAbi } from "@/lib/contracts";
 import { TransactionStatus } from "@/components/transaction-status";
@@ -74,7 +74,7 @@ export function TradePanel({ tokenAddress, pairAddress, decimals, disabled = fal
   }, [amount, decimals, pairAddress, publicClient, side]);
 
   async function setMaximum(): Promise<void> {
-    setError(undefined); setLiveQuote(undefined);
+    setError(undefined); setLiveQuote(undefined); setApprovalConfirmed(false);
     if (!isConnected || !walletAddress) return setError("Connect your wallet first.");
     if (chainId !== pumpNowChain.id) { switchChain({ chainId: pumpNowChain.id }); return; }
     if (!publicClient || !validAddresses || !pairAddress) return setError("Contract addresses are unavailable or invalid.");
@@ -158,10 +158,26 @@ export function TradePanel({ tokenAddress, pairAddress, decimals, disabled = fal
         setPhase("approving");
         const allowance = await publicClient.readContract({ address: token, abi: erc20Abi, functionName: "allowance", args: [walletAddress!, pair] });
         if (allowance < tokenAmount) {
-          const approvalHash = await write.writeContractAsync({ address: token, abi: erc20Abi, functionName: "approve", args: [pair, tokenAmount], chainId: pumpNowChain.id });
+          const approvalHash = await write.writeContractAsync({ address: token, abi: erc20Abi, functionName: "approve", args: [pair, maxUint256], chainId: pumpNowChain.id });
           setApprovalHash(approvalHash);
-          const approvalReceipt = await publicClient.waitForTransactionReceipt({ hash: approvalHash });
-          if (approvalReceipt.status !== "success") throw new Error("Token approval failed.");
+          try {
+            const approvalReceipt = await publicClient.waitForTransactionReceipt({ hash: approvalHash, confirmations: 1, pollingInterval: 1_500, timeout: 120_000 });
+            if (approvalReceipt.status !== "success") throw new Error("Token approval failed.");
+          } catch (receiptError) {
+            // Arc's public RPC can lose a receipt response after a successful transaction.
+            // The onchain allowance is the authoritative result for an ERC-20 approval.
+            let confirmedAllowance = 0n;
+            for (let attempt = 0; attempt < 10 && confirmedAllowance < tokenAmount; attempt += 1) {
+              await new Promise((resolve) => window.setTimeout(resolve, 1_500));
+              try {
+                confirmedAllowance = await publicClient.readContract({ address: token, abi: erc20Abi, functionName: "allowance", args: [walletAddress!, pair] });
+              } catch {
+                // Retry while the public RPC recovers.
+              }
+            }
+            if (confirmedAllowance < tokenAmount) throw receiptError;
+          }
+          setError(undefined);
           setApprovalConfirmed(true);
           setPhase("idle");
           return;

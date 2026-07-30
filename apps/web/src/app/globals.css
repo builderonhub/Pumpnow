@@ -40,3 +40,4 @@
 /* Explorer evidence links */
 .explorer-link{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 10px;border:1px solid #435337;border-radius:7px;background:#0d140b;color:var(--lime);font-size:11px;font-weight:800}.contract-link,.pool-link{display:inline-flex;align-items:center;gap:5px;color:var(--lime);font-size:12px}.pool-link{margin-left:14px;color:#9fe7b1}.trade-tx-link{text-align:right;color:var(--lime);font-size:11px;font-weight:750}
 @media(max-width:560px){.pool-link{display:flex;margin:8px 0 0}.trade-tx-link{font-size:10px}}
+.success-message{display:flex;align-items:center;justify-content:space-between;gap:16px}.success-message .primary-button{display:inline-flex;white-space:nowrap}

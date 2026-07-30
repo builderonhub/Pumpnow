@@ -28,12 +28,12 @@
         "internalType": "uint16"
       },
       {
-        "name": "basePrice_",
+        "name": "initialVirtualTokenReserve_",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "slope_",
+        "name": "initialVirtualNativeReserve_",
         "type": "uint256",
         "internalType": "uint256"
       },
@@ -78,7 +78,7 @@
   },
   {
     "type": "function",
-    "name": "basePrice",
+    "name": "virtualTokenReserve",
     "inputs": [],
     "outputs": [
       {
@@ -111,6 +111,13 @@
         "internalType": "uint256"
       }
     ],
+    "stateMutability": "payable"
+  },
+  {
+    "type": "function",
+    "name": "buyExactNative",
+    "inputs": [{ "name": "minTokenOutput", "type": "uint256", "internalType": "uint256" }],
+    "outputs": [{ "name": "tokenOutput", "type": "uint256", "internalType": "uint256" }],
     "stateMutability": "payable"
   },
   {
@@ -248,6 +255,17 @@
   },
   {
     "type": "function",
+    "name": "quoteBuyExactNative",
+    "inputs": [{ "name": "nativeInput", "type": "uint256", "internalType": "uint256" }],
+    "outputs": [
+      { "name": "tokenOutput", "type": "uint256", "internalType": "uint256" },
+      { "name": "fee", "type": "uint256", "internalType": "uint256" },
+      { "name": "curveInput", "type": "uint256", "internalType": "uint256" }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "quoteSell",
     "inputs": [
       {
@@ -314,7 +332,7 @@
   },
   {
     "type": "function",
-    "name": "slope",
+    "name": "virtualNativeReserve",
     "inputs": [],
     "outputs": [
       {

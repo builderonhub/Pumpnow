@@ -23,20 +23,19 @@ contract PumpPair is ReentrancyGuard, Pausable {
 
     uint256 public constant BPS_DENOMINATOR = 10_000;
     uint256 public constant MAX_FEE_BPS = 1_000;
-    uint256 private constant WAD = 1e18;
 
     IMemeToken public immutable token;
     ITreasury public immutable treasury;
     IDexAdapter public immutable dexAdapter;
     address public immutable factory;
-    uint256 public immutable basePrice;
-    uint256 public immutable slope;
     uint256 public immutable initialSupply;
     uint256 public immutable graduationTokenAmount;
     uint16 public immutable feeBps;
 
     uint256 public tokensSold;
     uint256 public nativeReserve;
+    uint256 public virtualTokenReserve;
+    uint256 public virtualNativeReserve;
     enum Status {
         ACTIVE,
         GRADUATED
@@ -77,8 +76,8 @@ contract PumpPair is ReentrancyGuard, Pausable {
         address factory_,
         address dexAdapter_,
         uint16 feeBps_,
-        uint256 basePrice_,
-        uint256 slope_,
+        uint256 initialVirtualTokenReserve_,
+        uint256 initialVirtualNativeReserve_,
         uint256 initialSupply_,
         uint256 graduationTokenAmount_
     ) {
@@ -87,7 +86,8 @@ contract PumpPair is ReentrancyGuard, Pausable {
         }
         if (feeBps_ > MAX_FEE_BPS) revert InvalidFeeBps();
         if (
-            basePrice_ == 0 || initialSupply_ == 0 || graduationTokenAmount_ == 0
+            initialVirtualTokenReserve_ <= initialSupply_ || initialVirtualNativeReserve_ == 0 || initialSupply_ == 0
+                || graduationTokenAmount_ == 0
                 || graduationTokenAmount_ >= initialSupply_
         ) revert InvalidCurveParameters();
         token = IMemeToken(token_);
@@ -95,8 +95,8 @@ contract PumpPair is ReentrancyGuard, Pausable {
         dexAdapter = IDexAdapter(dexAdapter_);
         factory = factory_;
         feeBps = feeBps_;
-        basePrice = basePrice_;
-        slope = slope_;
+        virtualTokenReserve = initialVirtualTokenReserve_;
+        virtualNativeReserve = initialVirtualNativeReserve_;
         initialSupply = initialSupply_;
         graduationTokenAmount = graduationTokenAmount_;
     }
@@ -114,7 +114,9 @@ contract PumpPair is ReentrancyGuard, Pausable {
     function quoteBuy(uint256 tokenAmount) public view returns (uint256 curveCost, uint256 fee, uint256 totalCost) {
         if (tokenAmount == 0) revert ZeroAmount();
         if (tokensSold + tokenAmount > graduationTokenAmount) revert SaleTargetExceeded();
-        curveCost = _curveIntegral(tokensSold, tokensSold + tokenAmount);
+        uint256 invariant = virtualTokenReserve * virtualNativeReserve;
+        uint256 nextVirtualNative = _ceilDiv(invariant, virtualTokenReserve - tokenAmount);
+        curveCost = nextVirtualNative - virtualNativeReserve;
         fee = curveCost * feeBps / BPS_DENOMINATOR;
         totalCost = curveCost + fee;
     }
@@ -122,9 +124,63 @@ contract PumpPair is ReentrancyGuard, Pausable {
     function quoteSell(uint256 tokenAmount) public view returns (uint256 grossOutput, uint256 fee, uint256 netOutput) {
         if (tokenAmount == 0) revert ZeroAmount();
         if (tokenAmount > tokensSold) revert InsufficientNativeReserve();
-        grossOutput = _curveIntegral(tokensSold - tokenAmount, tokensSold);
+        uint256 invariant = virtualTokenReserve * virtualNativeReserve;
+        uint256 nextVirtualNative = invariant / (virtualTokenReserve + tokenAmount);
+        grossOutput = virtualNativeReserve - nextVirtualNative;
         fee = grossOutput * feeBps / BPS_DENOMINATOR;
         netOutput = grossOutput - fee;
+    }
+
+    function quoteBuyExactNative(uint256 nativeInput)
+        public
+        view
+        returns (uint256 tokenOutput, uint256 fee, uint256 curveInput)
+    {
+        if (nativeInput == 0) revert ZeroAmount();
+        fee = nativeInput * feeBps / (BPS_DENOMINATOR + feeBps);
+        curveInput = nativeInput - fee;
+        uint256 invariant = virtualTokenReserve * virtualNativeReserve;
+        uint256 nextVirtualToken = _ceilDiv(invariant, virtualNativeReserve + curveInput);
+        tokenOutput = virtualTokenReserve - nextVirtualToken;
+        uint256 remaining = graduationTokenAmount - tokensSold;
+        if (tokenOutput == 0) revert ZeroAmount();
+        if (tokenOutput > remaining) {
+            tokenOutput = remaining;
+            uint256 nextVirtualNative = _ceilDiv(invariant, virtualTokenReserve - remaining);
+            curveInput = nextVirtualNative - virtualNativeReserve;
+            fee = curveInput * feeBps / BPS_DENOMINATOR;
+        }
+    }
+
+    function buyExactNative(uint256 minTokenOutput)
+        external
+        payable
+        nonReentrant
+        whenNotPaused
+        onlyActive
+        returns (uint256 tokenOutput)
+    {
+        uint256 fee;
+        uint256 curveInput;
+        (tokenOutput, fee, curveInput) = quoteBuyExactNative(msg.value);
+        if (tokenOutput < minTokenOutput) revert SlippageExceeded();
+        if (token.balanceOf(address(this)) < tokenOutput) revert InsufficientTokenInventory();
+
+        tokensSold += tokenOutput;
+        nativeReserve += curveInput;
+        virtualTokenReserve -= tokenOutput;
+        virtualNativeReserve += curveInput;
+        if (!token.transfer(msg.sender, tokenOutput)) revert InsufficientTokenInventory();
+        if (fee != 0) treasury.collectFee{value: fee}(msg.sender, address(token), fee);
+        uint256 refund = msg.value - curveInput - fee;
+        if (refund != 0) _sendNative(payable(msg.sender), refund);
+
+        emit Buy(msg.sender, address(token), tokenOutput, curveInput, fee, nativeReserve);
+        if (tokensSold == graduationTokenAmount) _graduate();
+    }
+
+    function realTokenReserve() external view returns (uint256) {
+        return graduationTokenAmount - tokensSold;
     }
 
     function buy(uint256 tokenAmount, uint256 maxNativeInput)
@@ -141,6 +197,8 @@ contract PumpPair is ReentrancyGuard, Pausable {
 
         tokensSold += tokenAmount;
         nativeReserve += curveCost;
+        virtualTokenReserve -= tokenAmount;
+        virtualNativeReserve += curveCost;
         if (!token.transfer(msg.sender, tokenAmount)) revert InsufficientTokenInventory();
         if (fee != 0) treasury.collectFee{value: fee}(msg.sender, address(token), fee);
         uint256 refund = msg.value - quotedTotal;
@@ -164,6 +222,8 @@ contract PumpPair is ReentrancyGuard, Pausable {
 
         tokensSold -= tokenAmount;
         nativeReserve -= grossOutput;
+        virtualTokenReserve += tokenAmount;
+        virtualNativeReserve -= grossOutput;
 
         if (!token.transferFrom(msg.sender, address(this), tokenAmount)) revert InsufficientTokenInventory();
         if (fee != 0) treasury.collectFee{value: fee}(msg.sender, address(token), fee);
@@ -177,11 +237,8 @@ contract PumpPair is ReentrancyGuard, Pausable {
         _setPaused(shouldPause);
     }
 
-    function _curveIntegral(uint256 fromSold, uint256 toSold) private view returns (uint256) {
-        uint256 amount = toSold - fromSold;
-        uint256 linearArea =
-            slope * (toSold * toSold - fromSold * fromSold) / (2 * graduationTokenAmount * WAD);
-        return basePrice * amount / WAD + linearArea;
+    function _ceilDiv(uint256 numerator, uint256 denominator) private pure returns (uint256) {
+        return numerator == 0 ? 0 : (numerator - 1) / denominator + 1;
     }
 
     function _graduate() private {

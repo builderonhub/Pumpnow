@@ -13,9 +13,9 @@
                            "internalType":  "uint256"
                        },
                        {
-                           "name":  "slope_",
-                           "type":  "uint256",
-                           "internalType":  "uint256"
+                           "name":  "virtualTokenBps_",
+                           "type":  "uint16",
+                           "internalType":  "uint16"
                        },
                        {
                            "name":  "graduationBps_",
@@ -284,15 +284,15 @@
     },
     {
         "type":  "function",
-        "name":  "slope",
+        "name":  "virtualTokenBps",
         "inputs":  [
 
                    ],
         "outputs":  [
                         {
                             "name":  "",
-                            "type":  "uint256",
-                            "internalType":  "uint256"
+                            "type":  "uint16",
+                            "internalType":  "uint16"
                         }
                     ],
         "stateMutability":  "view"

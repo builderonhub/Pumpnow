@@ -20,15 +20,15 @@ contract DeployTestnet {
         uint256 deployerKey = vm.envUint("PRIVATE_KEY");
         uint256 feeBps = vm.envUint("FEE_BPS");
         uint256 basePrice = vm.envUint("BASE_PRICE");
-        uint256 slope = vm.envUint("CURVE_SLOPE");
+        uint256 virtualTokenBps = vm.envUint("VIRTUAL_TOKEN_BPS");
         uint256 graduationBps = vm.envUint("GRADUATION_BPS");
-        if (feeBps > type(uint16).max || graduationBps > type(uint16).max) revert FeeBpsOutOfRange();
+        if (feeBps > type(uint16).max || virtualTokenBps > type(uint16).max || graduationBps > type(uint16).max) revert FeeBpsOutOfRange();
 
         vm.startBroadcast(deployerKey);
         adapter = new MockDexAdapter();
         // Safe because the explicit bound check above rejects values larger than uint16.
         // forge-lint: disable-next-line(unsafe-typecast)
-        factory = new PumpFactory(uint16(feeBps), basePrice, slope, uint16(graduationBps), address(adapter));
+        factory = new PumpFactory(uint16(feeBps), basePrice, uint16(virtualTokenBps), uint16(graduationBps), address(adapter));
         vm.stopBroadcast();
     }
 }

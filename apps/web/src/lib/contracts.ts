@@ -34,17 +34,20 @@ export const pumpNowChain = defineChain({
 
 export const pumpFactoryAbi = [
   { type: "function", name: "createToken", stateMutability: "nonpayable", inputs: [{ name: "name", type: "string" }, { name: "symbol", type: "string" }, { name: "initialSupply", type: "uint256" }, { name: "description", type: "string" }, { name: "imageUrl", type: "string" }, { name: "websiteUrl", type: "string" }, { name: "xUrl", type: "string" }, { name: "telegramUrl", type: "string" }], outputs: [{ name: "tokenAddress", type: "address" }, { name: "pairAddress", type: "address" }] },
+  { type: "event", name: "TokenCreated", inputs: [{ indexed: true, name: "token", type: "address" }, { indexed: true, name: "pair", type: "address" }, { indexed: true, name: "creator", type: "address" }, { indexed: false, name: "name", type: "string" }, { indexed: false, name: "symbol", type: "string" }, { indexed: false, name: "initialSupply", type: "uint256" }, { indexed: false, name: "graduationTokenAmount", type: "uint256" }, { indexed: false, name: "description", type: "string" }, { indexed: false, name: "imageUrl", type: "string" }, { indexed: false, name: "websiteUrl", type: "string" }, { indexed: false, name: "xUrl", type: "string" }, { indexed: false, name: "telegramUrl", type: "string" }] },
 ] as const;
 
 export const pumpPairAbi = [
-  { type: "function", name: "basePrice", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "uint256" }] },
-  { type: "function", name: "slope", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "uint256" }] },
+  { type: "function", name: "virtualTokenReserve", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "uint256" }] },
+  { type: "function", name: "virtualNativeReserve", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "uint256" }] },
   { type: "function", name: "tokensSold", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "uint256" }] },
   { type: "function", name: "graduationTokenAmount", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "uint256" }] },
   { type: "function", name: "feeBps", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "uint16" }] },
   { type: "function", name: "quoteBuy", stateMutability: "view", inputs: [{ name: "tokenAmount", type: "uint256" }], outputs: [{ name: "curveCost", type: "uint256" }, { name: "fee", type: "uint256" }, { name: "totalCost", type: "uint256" }] },
+  { type: "function", name: "quoteBuyExactNative", stateMutability: "view", inputs: [{ name: "nativeInput", type: "uint256" }], outputs: [{ name: "tokenOutput", type: "uint256" }, { name: "fee", type: "uint256" }, { name: "curveInput", type: "uint256" }] },
   { type: "function", name: "quoteSell", stateMutability: "view", inputs: [{ name: "tokenAmount", type: "uint256" }], outputs: [{ name: "grossOutput", type: "uint256" }, { name: "fee", type: "uint256" }, { name: "netOutput", type: "uint256" }] },
   { type: "function", name: "buy", stateMutability: "payable", inputs: [{ name: "tokenAmount", type: "uint256" }, { name: "maxNativeInput", type: "uint256" }], outputs: [{ name: "totalCost", type: "uint256" }] },
+  { type: "function", name: "buyExactNative", stateMutability: "payable", inputs: [{ name: "minTokenOutput", type: "uint256" }], outputs: [{ name: "tokenOutput", type: "uint256" }] },
   { type: "function", name: "sell", stateMutability: "nonpayable", inputs: [{ name: "tokenAmount", type: "uint256" }, { name: "minNativeOutput", type: "uint256" }], outputs: [{ name: "netOutput", type: "uint256" }] },
 ] as const;
 

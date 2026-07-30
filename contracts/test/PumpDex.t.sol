@@ -17,6 +17,7 @@ interface PumpDexVm {
 contract PumpDexTest {
     PumpDexVm private constant vm = PumpDexVm(address(uint160(uint256(keccak256("hevm cheat code")))));
     address private constant TRADER = address(0xCAFE);
+    uint256 private constant CURVE_INVENTORY = 7931 ether / 10;
 
     PumpFactory private launchFactory;
     PumpDexFactory private dexFactory;
@@ -28,13 +29,13 @@ contract PumpDexTest {
         dexFactory = new PumpDexFactory(30);
         adapter = new PumpDexAdapter(address(dexFactory));
         dexFactory.setPoolCreator(address(adapter));
-        launchFactory = new PumpFactory(0, 1 ether, 0, 8_000, address(adapter));
+        launchFactory = new PumpFactory(0, 1 ether, 10_730, 7_931, address(adapter));
         adapter.setFactory(address(launchFactory));
         (address tokenAddress, address pairAddress) =
             launchFactory.createToken("Pump DEX", "PDEX", 1_000 ether, "", "", "", "", "");
         token = MemeToken(tokenAddress);
         bondingPair = PumpPair(pairAddress);
-        vm.deal(TRADER, 1_000 ether);
+        vm.deal(TRADER, 10_000 ether);
     }
 
     function test_RevertUnauthorizedPoolCreationFrontRun() public {
@@ -44,8 +45,9 @@ contract PumpDexTest {
     }
 
     function test_RevertSecondLiquiditySeed() public {
+        (,, uint256 totalCost) = bondingPair.quoteBuy(CURVE_INVENTORY);
         vm.prank(TRADER);
-        bondingPair.buy{value: 800 ether}(800 ether, 800 ether);
+        bondingPair.buy{value: totalCost}(CURVE_INVENTORY, totalCost);
         PumpDexPool pool = PumpDexPool(payable(dexFactory.poolFor(address(token))));
 
         vm.prank(TRADER);
@@ -66,23 +68,25 @@ contract PumpDexTest {
     }
 
     function test_GraduationCreatesPoolAndPermanentlyLocksLiquidity() public {
+        (uint256 curveCost,, uint256 totalCost) = bondingPair.quoteBuy(CURVE_INVENTORY);
         vm.prank(TRADER);
-        bondingPair.buy{value: 800 ether}(800 ether, 800 ether);
+        bondingPair.buy{value: totalCost}(CURVE_INVENTORY, totalCost);
 
         address poolAddress = dexFactory.poolFor(address(token));
         PumpDexPool pool = PumpDexPool(payable(poolAddress));
         assertTrue(poolAddress != address(0));
         assertEq(uint256(bondingPair.status()), uint256(PumpPair.Status.GRADUATED));
-        assertEq(pool.nativeReserve(), 800 ether);
-        assertEq(pool.tokenReserve(), 200 ether);
+        assertEq(pool.nativeReserve(), curveCost);
+        assertEq(pool.tokenReserve(), 2069 ether / 10);
         assertTrue(pool.liquidityOf(adapter.LIQUIDITY_LOCK()) > 0);
         assertEq(token.balanceOf(address(bondingPair)), 0);
         assertEq(address(bondingPair).balance, 0);
     }
 
     function test_SwapsAfterGraduationAndKeepsReserveAccountingExact() public {
+        (,, uint256 totalCost) = bondingPair.quoteBuy(CURVE_INVENTORY);
         vm.prank(TRADER);
-        bondingPair.buy{value: 800 ether}(800 ether, 800 ether);
+        bondingPair.buy{value: totalCost}(CURVE_INVENTORY, totalCost);
         PumpDexPool pool = PumpDexPool(payable(dexFactory.poolFor(address(token))));
 
         uint256 expectedToken = pool.quoteNativeForToken(0.1 ether);

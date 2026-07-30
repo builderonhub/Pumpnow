@@ -30,7 +30,7 @@ contract PumpFactory {
     Treasury public immutable treasury;
     uint16 public immutable feeBps;
     uint256 public immutable basePrice;
-    uint256 public immutable slope;
+    uint16 public immutable virtualTokenBps;
     uint16 public graduationBps;
     address public dexAdapter;
 
@@ -58,15 +58,22 @@ contract PumpFactory {
     event DexAdapterUpdated(address indexed previousAdapter, address indexed newAdapter);
     event GraduationBpsUpdated(uint16 previousBps, uint16 newBps);
 
-    constructor(uint16 feeBps_, uint256 basePrice_, uint256 slope_, uint16 graduationBps_, address dexAdapter_) {
+    constructor(
+        uint16 feeBps_,
+        uint256 basePrice_,
+        uint16 virtualTokenBps_,
+        uint16 graduationBps_,
+        address dexAdapter_
+    ) {
         if (feeBps_ > MAX_FEE_BPS) revert InvalidFeeBps();
         if (basePrice_ == 0) revert InvalidCurveParameters();
         _validateGraduationBps(graduationBps_);
+        if (virtualTokenBps_ <= BPS_DENOMINATOR) revert InvalidCurveParameters();
         if (dexAdapter_ == address(0) || dexAdapter_.code.length == 0) revert InvalidAddress();
         owner = msg.sender;
         feeBps = feeBps_;
         basePrice = basePrice_;
-        slope = slope_;
+        virtualTokenBps = virtualTokenBps_;
         graduationBps = graduationBps_;
         dexAdapter = dexAdapter_;
         treasury = new Treasury(msg.sender, address(this));
@@ -92,14 +99,16 @@ contract PumpFactory {
         MemeToken token = new MemeToken(name, symbol);
         tokenAddress = address(token);
         uint256 graduationTokenAmount = initialSupply * graduationBps / BPS_DENOMINATOR;
+        uint256 initialVirtualTokenReserve = initialSupply * virtualTokenBps / BPS_DENOMINATOR;
+        uint256 initialVirtualNativeReserve = basePrice * initialVirtualTokenReserve / 1e18;
         PumpPair pair = new PumpPair(
             tokenAddress,
             address(treasury),
             address(this),
             dexAdapter,
             feeBps,
-            basePrice,
-            slope,
+            initialVirtualTokenReserve,
+            initialVirtualNativeReserve,
             initialSupply,
             graduationTokenAmount
         );

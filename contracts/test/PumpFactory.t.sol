@@ -36,8 +36,8 @@ contract PumpFactoryTest {
     Vm private constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
     uint16 private constant FEE_BPS = 100;
     uint256 private constant BASE_PRICE = 0.001 ether;
-    uint256 private constant SLOPE = 0.00001 ether;
-    uint16 private constant GRADUATION_BPS = 8_000;
+    uint16 private constant VIRTUAL_TOKEN_BPS = 10_730;
+    uint16 private constant GRADUATION_BPS = 7_931;
     uint256 private constant INITIAL_SUPPLY = 1_000_000 ether;
     uint256 private constant GRADUATION_TARGET = INITIAL_SUPPLY * GRADUATION_BPS / 10_000;
     address private constant CREATOR = address(0xBEEF);
@@ -66,7 +66,7 @@ contract PumpFactoryTest {
 
     function setUp() public {
         adapter = new MockDexAdapter();
-        factory = new PumpFactory(FEE_BPS, BASE_PRICE, SLOPE, GRADUATION_BPS, address(adapter));
+        factory = new PumpFactory(FEE_BPS, BASE_PRICE, VIRTUAL_TOKEN_BPS, GRADUATION_BPS, address(adapter));
         treasury = factory.treasury();
         vm.prank(CREATOR);
         (address tokenAddress, address pairAddress) =
@@ -92,7 +92,7 @@ contract PumpFactoryTest {
     }
 
     function test_CreateTokenEmitsTokenCreated() public {
-        PumpFactory freshFactory = new PumpFactory(FEE_BPS, BASE_PRICE, SLOPE, GRADUATION_BPS, address(adapter));
+        PumpFactory freshFactory = new PumpFactory(FEE_BPS, BASE_PRICE, VIRTUAL_TOKEN_BPS, GRADUATION_BPS, address(adapter));
         address expectedToken = computeCreateAddress(address(freshFactory), 2);
         address expectedPair = computeCreateAddress(address(freshFactory), 3);
 
@@ -136,6 +136,26 @@ contract PumpFactoryTest {
         vm.prank(TRADER);
         pair.buy{value: totalCost + 1 ether}(amount, totalCost);
         assertEq(TRADER.balance, beforeBalance - totalCost);
+    }
+
+    function test_BuyExactNativeQuotesTokenOutput() public {
+        (uint256 tokenOutput,,) = pair.quoteBuyExactNative(1 ether);
+        vm.prank(TRADER);
+        pair.buyExactNative{value: 1 ether}(tokenOutput);
+        assertEq(token.balanceOf(TRADER), tokenOutput);
+        assertEq(pair.tokensSold(), tokenOutput);
+    }
+
+    function test_BuyExactNativeCapsAtRealReserveAndGraduates() public {
+        uint256 input = 5_000 ether;
+        (uint256 tokenOutput, uint256 fee, uint256 curveInput) = pair.quoteBuyExactNative(input);
+        uint256 beforeBalance = TRADER.balance;
+        vm.prank(TRADER);
+        pair.buyExactNative{value: input}(tokenOutput);
+
+        assertEq(tokenOutput, GRADUATION_TARGET);
+        assertEq(TRADER.balance, beforeBalance - curveInput - fee);
+        assertEq(uint256(pair.status()), uint256(PumpPair.Status.GRADUATED));
     }
 
     function test_SellReturnsNativeAndPreservesAccounting() public {
@@ -232,7 +252,7 @@ contract PumpFactoryTest {
     function test_AutoGraduatesAtThresholdAndTransfersLiquidity() public {
         MockDexAdapter graduationAdapter = new MockDexAdapter();
         PumpFactory smallThresholdFactory =
-            new PumpFactory(FEE_BPS, BASE_PRICE, 0, GRADUATION_BPS, address(graduationAdapter));
+            new PumpFactory(FEE_BPS, BASE_PRICE, VIRTUAL_TOKEN_BPS, GRADUATION_BPS, address(graduationAdapter));
         (, address newPairAddress) =
             smallThresholdFactory.createToken("Graduate", "GRAD", INITIAL_SUPPLY, "", "", "", "", "");
         PumpPair newPair = PumpPair(newPairAddress);
@@ -249,7 +269,7 @@ contract PumpFactoryTest {
     function test_GraduationEmitsIndexerEvent() public {
         MockDexAdapter graduationAdapter = new MockDexAdapter();
         PumpFactory smallThresholdFactory =
-            new PumpFactory(FEE_BPS, BASE_PRICE, 0, GRADUATION_BPS, address(graduationAdapter));
+            new PumpFactory(FEE_BPS, BASE_PRICE, VIRTUAL_TOKEN_BPS, GRADUATION_BPS, address(graduationAdapter));
         (address newTokenAddress, address newPairAddress) =
             smallThresholdFactory.createToken("Graduate", "GRAD", INITIAL_SUPPLY, "", "", "", "", "");
         PumpPair newPair = PumpPair(newPairAddress);
@@ -283,7 +303,7 @@ contract PumpFactoryTest {
 
     function test_DoesNotGraduateAfterOnly202TokensOfOneBillionSupply() public {
         PumpFactory billionFactory =
-            new PumpFactory(FEE_BPS, BASE_PRICE, SLOPE, GRADUATION_BPS, address(adapter));
+            new PumpFactory(FEE_BPS, BASE_PRICE, VIRTUAL_TOKEN_BPS, GRADUATION_BPS, address(adapter));
         (, address billionPairAddress) =
             billionFactory.createToken("Billion", "BIL", 1_000_000_000 ether, "", "", "", "", "");
         PumpPair billionPair = PumpPair(billionPairAddress);
@@ -293,7 +313,7 @@ contract PumpFactoryTest {
         billionPair.buy{value: totalCost}(202 ether, totalCost);
 
         assertEq(uint256(billionPair.status()), uint256(PumpPair.Status.ACTIVE));
-        assertEq(billionPair.graduationTokenAmount(), 800_000_000 ether);
+        assertEq(billionPair.graduationTokenAmount(), 793_100_000 ether);
     }
 
     function test_RevertBuyPastGraduationTokenAmount() public {
@@ -304,7 +324,7 @@ contract PumpFactoryTest {
     function test_GraduatesOnlyOnceAndLocksBuySell() public {
         MockDexAdapter graduationAdapter = new MockDexAdapter();
         PumpFactory smallThresholdFactory =
-            new PumpFactory(FEE_BPS, BASE_PRICE, 0, GRADUATION_BPS, address(graduationAdapter));
+            new PumpFactory(FEE_BPS, BASE_PRICE, VIRTUAL_TOKEN_BPS, GRADUATION_BPS, address(graduationAdapter));
         (address newTokenAddress, address newPairAddress) =
             smallThresholdFactory.createToken("Graduate", "GRAD", INITIAL_SUPPLY, "", "", "", "", "");
         PumpPair newPair = PumpPair(newPairAddress);
@@ -388,11 +408,11 @@ contract PumpFactoryTest {
 
     function test_RevertInvalidFactoryConfiguration() public {
         vm.expectRevert(PumpFactory.InvalidFeeBps.selector);
-        new PumpFactory(1_001, BASE_PRICE, SLOPE, GRADUATION_BPS, address(adapter));
+        new PumpFactory(1_001, BASE_PRICE, VIRTUAL_TOKEN_BPS, GRADUATION_BPS, address(adapter));
         vm.expectRevert(PumpFactory.InvalidCurveParameters.selector);
-        new PumpFactory(FEE_BPS, 0, SLOPE, GRADUATION_BPS, address(adapter));
+        new PumpFactory(FEE_BPS, 0, VIRTUAL_TOKEN_BPS, GRADUATION_BPS, address(adapter));
         vm.expectRevert(PumpFactory.InvalidAddress.selector);
-        new PumpFactory(FEE_BPS, BASE_PRICE, SLOPE, GRADUATION_BPS, address(0));
+        new PumpFactory(FEE_BPS, BASE_PRICE, VIRTUAL_TOKEN_BPS, GRADUATION_BPS, address(0));
     }
 
     function test_RevertInvalidTokenMetadata() public {

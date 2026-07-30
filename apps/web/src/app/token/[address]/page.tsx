@@ -10,7 +10,7 @@ import { DexSwapPanel } from "@/components/dex-swap-panel";
 import { blockExplorerUrl } from "@/lib/contracts";
 export default function TokenPage() {
   const address = String(useParams<{ address: string }>().address).toLowerCase();
-  const token = useQuery({ queryKey: ["token", address], queryFn: () => api.token(address) });
+  const token = useQuery({ queryKey: ["token", address], queryFn: () => api.token(address), retry: 20, retryDelay: 1_500 });
   const trades = useQuery({ queryKey: ["trades", address], queryFn: () => api.trades(address) });
   const holders = useQuery({ queryKey: ["holders", address], queryFn: () => api.holders(address) });
   if (token.isPending) return <section className="page shell"><div className="detail-skeleton skeleton" /></section>;

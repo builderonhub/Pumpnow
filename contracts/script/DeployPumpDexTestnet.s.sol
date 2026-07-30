@@ -21,10 +21,10 @@ contract DeployPumpDexTestnet {
         uint256 dexFeeBps = vm.envUint("DEX_FEE_BPS");
         uint256 tradeFeeBps = vm.envUint("FEE_BPS");
         uint256 basePrice = vm.envUint("BASE_PRICE");
-        uint256 slope = vm.envUint("CURVE_SLOPE");
+        uint256 virtualTokenBps = vm.envUint("VIRTUAL_TOKEN_BPS");
         uint256 graduationBps = vm.envUint("GRADUATION_BPS");
         if (
-            dexFeeBps > type(uint16).max || tradeFeeBps > type(uint16).max
+            dexFeeBps > type(uint16).max || tradeFeeBps > type(uint16).max || virtualTokenBps > type(uint16).max
                 || graduationBps > type(uint16).max
         ) revert ParameterOutOfRange();
 
@@ -33,7 +33,7 @@ contract DeployPumpDexTestnet {
         adapter = new PumpDexAdapter(address(dex));
         dex.setPoolCreator(address(adapter));
         factory =
-            new PumpFactory(uint16(tradeFeeBps), basePrice, slope, uint16(graduationBps), address(adapter));
+            new PumpFactory(uint16(tradeFeeBps), basePrice, uint16(virtualTokenBps), uint16(graduationBps), address(adapter));
         adapter.setFactory(address(factory));
         vm.stopBroadcast();
     }

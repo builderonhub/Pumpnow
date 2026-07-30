@@ -275,7 +275,8 @@ export class EventProcessorService {
         name: log.args.name,
         symbol: log.args.symbol,
         totalSupply: log.args.initialSupply.toString(),
-        graduationThreshold: log.args.graduationThreshold.toString(),
+        // The existing database column now stores the token-sale target, not a native reserve threshold.
+        graduationThreshold: log.args.graduationTokenAmount.toString(),
         description: log.args.description || null,
         logoUrl: log.args.imageUrl || null,
         websiteUrl: log.args.websiteUrl || null,
@@ -339,7 +340,11 @@ export class EventProcessorService {
     await this.wallet(tx, walletAddress);
     const token = await tx.token.findUniqueOrThrow({
       where: { address: tokenAddress },
-      select: { totalSupply: true, graduationThreshold: true },
+      select: {
+        totalSupply: true,
+        graduationThreshold: true,
+        circulatingSupply: true,
+      },
     });
     const existing = await tx.holder.findUnique({
       where: { tokenAddress_walletAddress: { tokenAddress, walletAddress } },
@@ -366,9 +371,14 @@ export class EventProcessorService {
     });
     const marketCap = tokenMarketCap(price, token.totalSupply);
     const volume = nativeAmount(quoteAmount);
+    const previousCirculating = BigInt(token.circulatingSupply.toFixed(0));
+    const nextCirculating =
+      side === TradeSide.BUY
+        ? previousCirculating + tokenAmount
+        : previousCirculating - tokenAmount;
     const progress = Prisma.Decimal.min(
       new Prisma.Decimal(100),
-      new Prisma.Decimal(log.args.nativeReserve.toString())
+      new Prisma.Decimal(nextCirculating.toString())
         .mul(100)
         .div(token.graduationThreshold),
     );
@@ -405,10 +415,7 @@ export class EventProcessorService {
         tradeCount: { increment: 1 },
         holderCount: { increment: holderDelta },
         bondingCurveProgress: progress,
-        circulatingSupply: {
-          increment:
-            side === TradeSide.BUY ? tokenAmount.toString() : `-${tokenAmount}`,
-        },
+        circulatingSupply: nextCirculating.toString(),
       },
     });
     await tx.liquidityPool.update({

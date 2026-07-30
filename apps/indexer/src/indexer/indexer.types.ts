@@ -20,7 +20,7 @@ export type IndexedLog = EventBase &
           name: string;
           symbol: string;
           initialSupply: bigint;
-          graduationThreshold: bigint;
+          graduationTokenAmount: bigint;
           description: string;
           imageUrl: string;
           websiteUrl: string;

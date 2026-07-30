@@ -8,6 +8,14 @@ import { erc20Abi, pumpNowChain, pumpPairAbi } from "@/lib/contracts";
 import { TransactionStatus } from "@/components/transaction-status";
 
 type Phase = "idle" | "approving" | "selling" | "buying";
+type LiveQuote = { amount: string; fee: string };
+
+function displayUnits(value: bigint, decimals = 18): string {
+  const number = Number(formatUnits(value, decimals));
+  return Number.isFinite(number)
+    ? number.toLocaleString(undefined, { maximumFractionDigits: 6 })
+    : formatUnits(value, decimals);
+}
 
 export function TradePanel({ tokenAddress, pairAddress, decimals, disabled = false }: { tokenAddress: string; pairAddress?: string; decimals: number; disabled?: boolean }) {
   const [side, setSide] = useState<"buy" | "sell">("buy");
@@ -17,6 +25,8 @@ export function TradePanel({ tokenAddress, pairAddress, decimals, disabled = fal
   const [finalHash, setFinalHash] = useState<Hash>();
   const [slippageBps, setSlippageBps] = useState(100);
   const [maxLoading, setMaxLoading] = useState(false);
+  const [liveQuote, setLiveQuote] = useState<LiveQuote>();
+  const [quoteLoading, setQuoteLoading] = useState(false);
   const { address: walletAddress, isConnected } = useAccount();
   const chainId = useChainId();
   const { switchChain } = useSwitchChain();
@@ -26,8 +36,42 @@ export function TradePanel({ tokenAddress, pairAddress, decimals, disabled = fal
   const receipt = useWaitForTransactionReceipt({ hash: finalHash });
   const validAddresses = isAddress(tokenAddress) && Boolean(pairAddress && isAddress(pairAddress));
 
+  useEffect(() => {
+    if (!publicClient || !pairAddress || !isAddress(pairAddress) || !amount.trim()) {
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      try {
+        const tokenAmount = parseUnits(amount, decimals);
+        if (tokenAmount <= 0n) return;
+        setQuoteLoading(true);
+        const quote = await publicClient.readContract({
+          address: pairAddress as Address,
+          abi: pumpPairAbi,
+          functionName: side === "buy" ? "quoteBuy" : "quoteSell",
+          args: [tokenAmount],
+        });
+        if (!cancelled) {
+          setLiveQuote({
+            amount: displayUnits(quote[2]),
+            fee: displayUnits(quote[1]),
+          });
+        }
+      } catch {
+        if (!cancelled) setLiveQuote(undefined);
+      } finally {
+        if (!cancelled) setQuoteLoading(false);
+      }
+    }, 300);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [amount, decimals, pairAddress, publicClient, side]);
+
   async function setMaximum(): Promise<void> {
-    setError(undefined);
+    setError(undefined); setLiveQuote(undefined);
     if (!isConnected || !walletAddress) return setError("Connect your wallet first.");
     if (chainId !== pumpNowChain.id) { switchChain({ chainId: pumpNowChain.id }); return; }
     if (!publicClient || !validAddresses || !pairAddress) return setError("Contract addresses are unavailable or invalid.");
@@ -41,25 +85,28 @@ export function TradePanel({ tokenAddress, pairAddress, decimals, disabled = fal
         return;
       }
 
-      const [nativeBalance, inventory, basePrice, slope, sold, feeBps] = await Promise.all([
+      const [nativeBalance, inventory, basePrice, slope, sold, graduationTarget, feeBps] = await Promise.all([
         publicClient.getBalance({ address: walletAddress }),
         publicClient.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [pair] }),
         publicClient.readContract({ address: pair, abi: pumpPairAbi, functionName: "basePrice" }),
         publicClient.readContract({ address: pair, abi: pumpPairAbi, functionName: "slope" }),
         publicClient.readContract({ address: pair, abi: pumpPairAbi, functionName: "tokensSold" }),
+        publicClient.readContract({ address: pair, abi: pumpPairAbi, functionName: "graduationTokenAmount" }),
         publicClient.readContract({ address: pair, abi: pumpPairAbi, functionName: "feeBps" }),
       ]);
       const spendable = nativeBalance - nativeBalance / 100n;
       const wad = 10n ** 18n;
       const affordable = (tokenAmount: bigint) => {
         const toSold = sold + tokenAmount;
-        const curveCost = basePrice * tokenAmount / wad + slope * (toSold * toSold - sold * sold) / (2n * wad * wad);
+        const curveCost =
+          basePrice * tokenAmount / wad
+          + slope * (toSold * toSold - sold * sold) / (2n * graduationTarget * wad);
         const totalCost = curveCost + curveCost * BigInt(feeBps) / 10_000n;
         const withSlippage = totalCost + totalCost * BigInt(slippageBps) / 10_000n;
         return withSlippage <= spendable;
       };
       let low = 0n;
-      let high = inventory;
+      let high = inventory < graduationTarget - sold ? inventory : graduationTarget - sold;
       while (low < high) {
         const middle = (low + high + 1n) / 2n;
         if (affordable(middle)) low = middle;
@@ -129,5 +176,5 @@ export function TradePanel({ tokenAddress, pairAddress, decimals, disabled = fal
   const pending = (phase !== "idle" && !receipt.isSuccess) || receipt.isLoading;
   const displayPhase = receipt.isSuccess ? "idle" : phase;
   const button = !isConnected ? "Connect wallet first" : chainId !== pumpNowChain.id ? "Switch network" : displayPhase === "approving" ? "Approving token…" : displayPhase === "selling" ? "Confirm sell…" : displayPhase === "buying" ? "Confirm buy…" : side === "buy" ? "Buy token" : "Approve & sell";
-  return <aside className="panel trade-panel"><span className="kicker">TRADE</span><h2>{disabled ? "Trading closed" : "Buy or sell"}</h2><p>{disabled ? "This token graduated to its DEX pool. Bonding-curve buy and sell are permanently disabled." : "Enter the token quantity below. Your wallet pays or receives USDC based on the live bonding-curve quote."}</p><div className="trade-tabs"><button type="button" className={side === "buy" ? "active" : ""} onClick={() => { setSide("buy"); setAmount(""); setError(undefined); }}>Buy</button><button type="button" className={side === "sell" ? "active" : ""} onClick={() => { setSide("sell"); setAmount(""); setError(undefined); }}>Sell</button></div><label><span className="amount-label"><span>{side === "buy" ? "Token amount to buy" : "Token amount to sell"} <b>TOKEN</b></span><button type="button" disabled={disabled || maxLoading} onClick={() => void setMaximum()}>{maxLoading ? "…" : "MAX"}</button></span><input inputMode="decimal" placeholder="Enter token quantity" value={amount} onChange={(event) => setAmount(event.target.value)} /></label><label>Slippage<select value={slippageBps} onChange={(event) => setSlippageBps(Number(event.target.value))}><option value={50}>0.5%</option><option value={100}>1%</option><option value={300}>3%</option></select></label><button className="primary-button" type="button" disabled={disabled || pending || !validAddresses} onClick={() => void trade()}>{disabled ? "Graduated" : button}</button><TransactionStatus hash={finalHash} pending={pending} label={receipt.isSuccess ? "Confirmed. Refreshing indexed API data." : undefined} error={error ?? (receipt.error?.message.split("\n")[0])} /></aside>;
+  return <aside className="panel trade-panel"><span className="kicker">TRADE</span><h2>{disabled ? "Trading closed" : "Buy or sell"}</h2><p>{disabled ? "This token graduated to its DEX pool. Bonding-curve buy and sell are permanently disabled." : "Enter the token quantity below. Your wallet pays or receives USDC based on the live bonding-curve quote."}</p><div className="trade-tabs"><button type="button" className={side === "buy" ? "active" : ""} onClick={() => { setSide("buy"); setAmount(""); setLiveQuote(undefined); setError(undefined); }}>Buy</button><button type="button" className={side === "sell" ? "active" : ""} onClick={() => { setSide("sell"); setAmount(""); setLiveQuote(undefined); setError(undefined); }}>Sell</button></div><label><span className="amount-label"><span>{side === "buy" ? "Token amount to buy" : "Token amount to sell"} <b>TOKEN</b></span><button type="button" disabled={disabled || maxLoading} onClick={() => void setMaximum()}>{maxLoading ? "…" : "MAX"}</button></span><input inputMode="decimal" placeholder="Enter token quantity" value={amount} onChange={(event) => { setAmount(event.target.value); setLiveQuote(undefined); }} /></label>{amount.trim() ? <div className={`live-quote${quoteLoading ? " loading" : ""}`} aria-live="polite"><span>{side === "buy" ? "You pay" : "You receive"}</span><strong>{quoteLoading ? "Calculating…" : liveQuote ? `≈ ${liveQuote.amount} ${pumpNowChain.nativeCurrency.symbol}` : "Quote unavailable"}</strong>{liveQuote ? <small>{side === "buy" ? "Includes" : "After deducting"} {liveQuote.fee} {pumpNowChain.nativeCurrency.symbol} fee</small> : null}</div> : null}<label>Slippage<select value={slippageBps} onChange={(event) => setSlippageBps(Number(event.target.value))}><option value={50}>0.5%</option><option value={100}>1%</option><option value={300}>3%</option></select></label><button className="primary-button" type="button" disabled={disabled || pending || !validAddresses} onClick={() => void trade()}>{disabled ? "Graduated" : button}</button><TransactionStatus hash={finalHash} pending={pending} label={receipt.isSuccess ? "Confirmed. Refreshing indexed API data." : undefined} error={error ?? (receipt.error?.message.split("\n")[0])} /></aside>;
 }

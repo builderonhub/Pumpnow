@@ -28,9 +28,11 @@ contract DeployDexReady {
         int256 upper = vm.envInt("DEX_TICK_UPPER");
         uint256 sqrtPrice = vm.envUint("DEX_INITIAL_SQRT_PRICE_X96");
         uint256 feeBps = vm.envUint("FEE_BPS");
+        uint256 graduationBps = vm.envUint("GRADUATION_BPS");
         if (
             poolFee > type(uint24).max || lower < type(int24).min || lower > type(int24).max || upper < type(int24).min
                 || upper > type(int24).max || sqrtPrice > type(uint160).max || feeBps > type(uint16).max
+                || graduationBps > type(uint16).max
         ) revert ParameterOutOfRange();
 
         vm.startBroadcast();
@@ -41,7 +43,7 @@ contract DeployDexReady {
             uint16(feeBps),
             vm.envUint("BASE_PRICE"),
             vm.envUint("CURVE_SLOPE"),
-            vm.envUint("GRADUATION_THRESHOLD"),
+            uint16(graduationBps),
             address(adapter)
         );
         adapter.setFactory(address(factory));

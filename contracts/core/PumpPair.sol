@@ -19,6 +19,7 @@ contract PumpPair is ReentrancyGuard, Pausable {
     error NativeTransferFailed();
     error PairNotActive();
     error GraduationFailed();
+    error SaleTargetExceeded();
 
     uint256 public constant BPS_DENOMINATOR = 10_000;
     uint256 public constant MAX_FEE_BPS = 1_000;
@@ -30,7 +31,8 @@ contract PumpPair is ReentrancyGuard, Pausable {
     address public immutable factory;
     uint256 public immutable basePrice;
     uint256 public immutable slope;
-    uint256 public immutable graduationThreshold;
+    uint256 public immutable initialSupply;
+    uint256 public immutable graduationTokenAmount;
     uint16 public immutable feeBps;
 
     uint256 public tokensSold;
@@ -77,13 +79,17 @@ contract PumpPair is ReentrancyGuard, Pausable {
         uint16 feeBps_,
         uint256 basePrice_,
         uint256 slope_,
-        uint256 graduationThreshold_
+        uint256 initialSupply_,
+        uint256 graduationTokenAmount_
     ) {
         if (token_ == address(0) || treasury_ == address(0) || factory_ == address(0) || dexAdapter_ == address(0)) {
             revert InvalidAddress();
         }
         if (feeBps_ > MAX_FEE_BPS) revert InvalidFeeBps();
-        if (basePrice_ == 0 || graduationThreshold_ == 0) revert InvalidCurveParameters();
+        if (
+            basePrice_ == 0 || initialSupply_ == 0 || graduationTokenAmount_ == 0
+                || graduationTokenAmount_ >= initialSupply_
+        ) revert InvalidCurveParameters();
         token = IMemeToken(token_);
         treasury = ITreasury(treasury_);
         dexAdapter = IDexAdapter(dexAdapter_);
@@ -91,7 +97,8 @@ contract PumpPair is ReentrancyGuard, Pausable {
         feeBps = feeBps_;
         basePrice = basePrice_;
         slope = slope_;
-        graduationThreshold = graduationThreshold_;
+        initialSupply = initialSupply_;
+        graduationTokenAmount = graduationTokenAmount_;
     }
 
     modifier onlyFactory() {
@@ -106,6 +113,7 @@ contract PumpPair is ReentrancyGuard, Pausable {
 
     function quoteBuy(uint256 tokenAmount) public view returns (uint256 curveCost, uint256 fee, uint256 totalCost) {
         if (tokenAmount == 0) revert ZeroAmount();
+        if (tokensSold + tokenAmount > graduationTokenAmount) revert SaleTargetExceeded();
         curveCost = _curveIntegral(tokensSold, tokensSold + tokenAmount);
         fee = curveCost * feeBps / BPS_DENOMINATOR;
         totalCost = curveCost + fee;
@@ -139,7 +147,7 @@ contract PumpPair is ReentrancyGuard, Pausable {
         if (refund != 0) _sendNative(payable(msg.sender), refund);
 
         emit Buy(msg.sender, address(token), tokenAmount, curveCost, fee, nativeReserve);
-        if (nativeReserve >= graduationThreshold) _graduate();
+        if (tokensSold == graduationTokenAmount) _graduate();
         return quotedTotal;
     }
 
@@ -171,7 +179,8 @@ contract PumpPair is ReentrancyGuard, Pausable {
 
     function _curveIntegral(uint256 fromSold, uint256 toSold) private view returns (uint256) {
         uint256 amount = toSold - fromSold;
-        uint256 linearArea = slope * (toSold * toSold - fromSold * fromSold) / (2 * WAD * WAD);
+        uint256 linearArea =
+            slope * (toSold * toSold - fromSold * fromSold) / (2 * graduationTokenAmount * WAD);
         return basePrice * amount / WAD + linearArea;
     }
 

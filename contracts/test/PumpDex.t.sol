@@ -28,13 +28,13 @@ contract PumpDexTest {
         dexFactory = new PumpDexFactory(30);
         adapter = new PumpDexAdapter(address(dexFactory));
         dexFactory.setPoolCreator(address(adapter));
-        launchFactory = new PumpFactory(0, 1 ether, 0, 1 ether, address(adapter));
+        launchFactory = new PumpFactory(0, 1 ether, 0, 8_000, address(adapter));
         adapter.setFactory(address(launchFactory));
         (address tokenAddress, address pairAddress) =
             launchFactory.createToken("Pump DEX", "PDEX", 1_000 ether, "", "", "", "", "");
         token = MemeToken(tokenAddress);
         bondingPair = PumpPair(pairAddress);
-        vm.deal(TRADER, 10 ether);
+        vm.deal(TRADER, 1_000 ether);
     }
 
     function test_RevertUnauthorizedPoolCreationFrontRun() public {
@@ -45,7 +45,7 @@ contract PumpDexTest {
 
     function test_RevertSecondLiquiditySeed() public {
         vm.prank(TRADER);
-        bondingPair.buy{value: 1 ether}(1 ether, 1 ether);
+        bondingPair.buy{value: 800 ether}(800 ether, 800 ether);
         PumpDexPool pool = PumpDexPool(payable(dexFactory.poolFor(address(token))));
 
         vm.prank(TRADER);
@@ -67,14 +67,14 @@ contract PumpDexTest {
 
     function test_GraduationCreatesPoolAndPermanentlyLocksLiquidity() public {
         vm.prank(TRADER);
-        bondingPair.buy{value: 1 ether}(1 ether, 1 ether);
+        bondingPair.buy{value: 800 ether}(800 ether, 800 ether);
 
         address poolAddress = dexFactory.poolFor(address(token));
         PumpDexPool pool = PumpDexPool(payable(poolAddress));
         assertTrue(poolAddress != address(0));
         assertEq(uint256(bondingPair.status()), uint256(PumpPair.Status.GRADUATED));
-        assertEq(pool.nativeReserve(), 1 ether);
-        assertEq(pool.tokenReserve(), 999 ether);
+        assertEq(pool.nativeReserve(), 800 ether);
+        assertEq(pool.tokenReserve(), 200 ether);
         assertTrue(pool.liquidityOf(adapter.LIQUIDITY_LOCK()) > 0);
         assertEq(token.balanceOf(address(bondingPair)), 0);
         assertEq(address(bondingPair).balance, 0);
@@ -82,7 +82,7 @@ contract PumpDexTest {
 
     function test_SwapsAfterGraduationAndKeepsReserveAccountingExact() public {
         vm.prank(TRADER);
-        bondingPair.buy{value: 1 ether}(1 ether, 1 ether);
+        bondingPair.buy{value: 800 ether}(800 ether, 800 ether);
         PumpDexPool pool = PumpDexPool(payable(dexFactory.poolFor(address(token))));
 
         uint256 expectedToken = pool.quoteNativeForToken(0.1 ether);

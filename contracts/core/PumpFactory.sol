@@ -13,10 +13,10 @@ contract PumpFactory {
     error InvalidFeeBps();
     error InvalidCurveParameters();
     error PairNotRegistered();
-    error InvalidThreshold();
+    error InvalidGraduationBps();
 
     uint16 public constant MAX_FEE_BPS = 1_000;
-    uint256 public constant MAX_GRADUATION_THRESHOLD = 1_000_000 ether;
+    uint16 public constant BPS_DENOMINATOR = 10_000;
 
     struct TokenRecord {
         address token;
@@ -31,7 +31,7 @@ contract PumpFactory {
     uint16 public immutable feeBps;
     uint256 public immutable basePrice;
     uint256 public immutable slope;
-    uint256 public graduationThreshold;
+    uint16 public graduationBps;
     address public dexAdapter;
 
     address[] private _tokens;
@@ -47,7 +47,7 @@ contract PumpFactory {
         string name,
         string symbol,
         uint256 initialSupply,
-        uint256 graduationThreshold,
+        uint256 graduationTokenAmount,
         string description,
         string imageUrl,
         string websiteUrl,
@@ -56,18 +56,18 @@ contract PumpFactory {
     );
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
     event DexAdapterUpdated(address indexed previousAdapter, address indexed newAdapter);
-    event GraduationThresholdUpdated(uint256 previousThreshold, uint256 newThreshold);
+    event GraduationBpsUpdated(uint16 previousBps, uint16 newBps);
 
-    constructor(uint16 feeBps_, uint256 basePrice_, uint256 slope_, uint256 graduationThreshold_, address dexAdapter_) {
+    constructor(uint16 feeBps_, uint256 basePrice_, uint256 slope_, uint16 graduationBps_, address dexAdapter_) {
         if (feeBps_ > MAX_FEE_BPS) revert InvalidFeeBps();
         if (basePrice_ == 0) revert InvalidCurveParameters();
-        _validateThreshold(graduationThreshold_);
+        _validateGraduationBps(graduationBps_);
         if (dexAdapter_ == address(0) || dexAdapter_.code.length == 0) revert InvalidAddress();
         owner = msg.sender;
         feeBps = feeBps_;
         basePrice = basePrice_;
         slope = slope_;
-        graduationThreshold = graduationThreshold_;
+        graduationBps = graduationBps_;
         dexAdapter = dexAdapter_;
         treasury = new Treasury(msg.sender, address(this));
     }
@@ -91,8 +91,17 @@ contract PumpFactory {
 
         MemeToken token = new MemeToken(name, symbol);
         tokenAddress = address(token);
+        uint256 graduationTokenAmount = initialSupply * graduationBps / BPS_DENOMINATOR;
         PumpPair pair = new PumpPair(
-            tokenAddress, address(treasury), address(this), dexAdapter, feeBps, basePrice, slope, graduationThreshold
+            tokenAddress,
+            address(treasury),
+            address(this),
+            dexAdapter,
+            feeBps,
+            basePrice,
+            slope,
+            initialSupply,
+            graduationTokenAmount
         );
         pairAddress = address(pair);
         IMemeToken(tokenAddress).mintInitial(pairAddress, initialSupply);
@@ -117,7 +126,7 @@ contract PumpFactory {
             name,
             symbol,
             initialSupply,
-            graduationThreshold,
+            graduationTokenAmount,
             description,
             imageUrl,
             websiteUrl,
@@ -138,10 +147,10 @@ contract PumpFactory {
         dexAdapter = newAdapter;
     }
 
-    function setGraduationThreshold(uint256 newThreshold) external onlyOwner {
-        _validateThreshold(newThreshold);
-        emit GraduationThresholdUpdated(graduationThreshold, newThreshold);
-        graduationThreshold = newThreshold;
+    function setGraduationBps(uint16 newBps) external onlyOwner {
+        _validateGraduationBps(newBps);
+        emit GraduationBpsUpdated(graduationBps, newBps);
+        graduationBps = newBps;
     }
 
     function transferOwnership(address newOwner) external onlyOwner {
@@ -170,7 +179,7 @@ contract PumpFactory {
         return pairFor[token] != address(0);
     }
 
-    function _validateThreshold(uint256 threshold) private pure {
-        if (threshold == 0 || threshold > MAX_GRADUATION_THRESHOLD) revert InvalidThreshold();
+    function _validateGraduationBps(uint16 bps) private pure {
+        if (bps == 0 || bps >= BPS_DENOMINATOR) revert InvalidGraduationBps();
     }
 }

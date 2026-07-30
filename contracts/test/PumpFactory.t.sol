@@ -37,8 +37,9 @@ contract PumpFactoryTest {
     uint16 private constant FEE_BPS = 100;
     uint256 private constant BASE_PRICE = 0.001 ether;
     uint256 private constant SLOPE = 0.00001 ether;
-    uint256 private constant GRADUATION_THRESHOLD = 1 ether;
+    uint16 private constant GRADUATION_BPS = 8_000;
     uint256 private constant INITIAL_SUPPLY = 1_000_000 ether;
+    uint256 private constant GRADUATION_TARGET = INITIAL_SUPPLY * GRADUATION_BPS / 10_000;
     address private constant CREATOR = address(0xBEEF);
     address private constant TRADER = address(0xCAFE);
 
@@ -55,7 +56,7 @@ contract PumpFactoryTest {
         string name,
         string symbol,
         uint256 initialSupply,
-        uint256 graduationThreshold,
+        uint256 graduationTokenAmount,
         string description,
         string imageUrl,
         string websiteUrl,
@@ -65,14 +66,14 @@ contract PumpFactoryTest {
 
     function setUp() public {
         adapter = new MockDexAdapter();
-        factory = new PumpFactory(FEE_BPS, BASE_PRICE, SLOPE, GRADUATION_THRESHOLD, address(adapter));
+        factory = new PumpFactory(FEE_BPS, BASE_PRICE, SLOPE, GRADUATION_BPS, address(adapter));
         treasury = factory.treasury();
         vm.prank(CREATOR);
         (address tokenAddress, address pairAddress) =
             factory.createToken("Pump Now", "NOW", INITIAL_SUPPLY, "", "", "", "", "");
         token = MemeToken(tokenAddress);
         pair = PumpPair(pairAddress);
-        vm.deal(TRADER, 100 ether);
+        vm.deal(TRADER, 10_000 ether);
     }
 
     function test_CreateTokenMintsSupplyToPairAndStoresRegistry() public view {
@@ -91,7 +92,7 @@ contract PumpFactoryTest {
     }
 
     function test_CreateTokenEmitsTokenCreated() public {
-        PumpFactory freshFactory = new PumpFactory(FEE_BPS, BASE_PRICE, SLOPE, GRADUATION_THRESHOLD, address(adapter));
+        PumpFactory freshFactory = new PumpFactory(FEE_BPS, BASE_PRICE, SLOPE, GRADUATION_BPS, address(adapter));
         address expectedToken = computeCreateAddress(address(freshFactory), 2);
         address expectedPair = computeCreateAddress(address(freshFactory), 3);
 
@@ -103,7 +104,7 @@ contract PumpFactoryTest {
             "Other",
             "OTH",
             INITIAL_SUPPLY,
-            GRADUATION_THRESHOLD,
+            GRADUATION_TARGET,
             "",
             "",
             "",
@@ -231,32 +232,32 @@ contract PumpFactoryTest {
     function test_AutoGraduatesAtThresholdAndTransfersLiquidity() public {
         MockDexAdapter graduationAdapter = new MockDexAdapter();
         PumpFactory smallThresholdFactory =
-            new PumpFactory(FEE_BPS, BASE_PRICE, 0, BASE_PRICE, address(graduationAdapter));
+            new PumpFactory(FEE_BPS, BASE_PRICE, 0, GRADUATION_BPS, address(graduationAdapter));
         (, address newPairAddress) =
             smallThresholdFactory.createToken("Graduate", "GRAD", INITIAL_SUPPLY, "", "", "", "", "");
         PumpPair newPair = PumpPair(newPairAddress);
-        (,, uint256 totalCost) = newPair.quoteBuy(1 ether);
+        (uint256 curveCost,, uint256 totalCost) = newPair.quoteBuy(GRADUATION_TARGET);
         vm.prank(TRADER);
-        newPair.buy{value: totalCost}(1 ether, totalCost);
+        newPair.buy{value: totalCost}(GRADUATION_TARGET, totalCost);
         assertEq(uint256(newPair.status()), uint256(PumpPair.Status.GRADUATED));
         assertEq(graduationAdapter.callCount(), 1);
-        assertEq(graduationAdapter.lastNativeAmount(), BASE_PRICE);
-        assertEq(graduationAdapter.lastTokenAmount(), INITIAL_SUPPLY - 1 ether);
+        assertEq(graduationAdapter.lastNativeAmount(), curveCost);
+        assertEq(graduationAdapter.lastTokenAmount(), INITIAL_SUPPLY - GRADUATION_TARGET);
         assertEq(newPair.nativeReserve(), 0);
     }
 
     function test_GraduationEmitsIndexerEvent() public {
         MockDexAdapter graduationAdapter = new MockDexAdapter();
         PumpFactory smallThresholdFactory =
-            new PumpFactory(FEE_BPS, BASE_PRICE, 0, BASE_PRICE, address(graduationAdapter));
+            new PumpFactory(FEE_BPS, BASE_PRICE, 0, GRADUATION_BPS, address(graduationAdapter));
         (address newTokenAddress, address newPairAddress) =
             smallThresholdFactory.createToken("Graduate", "GRAD", INITIAL_SUPPLY, "", "", "", "", "");
         PumpPair newPair = PumpPair(newPairAddress);
-        (,, uint256 totalCost) = newPair.quoteBuy(1 ether);
+        (,, uint256 totalCost) = newPair.quoteBuy(GRADUATION_TARGET);
 
         vm.recordLogs();
         vm.prank(TRADER);
-        newPair.buy{value: totalCost}(1 ether, totalCost);
+        newPair.buy{value: totalCost}(GRADUATION_TARGET, totalCost);
         Vm.Log[] memory logs = vm.getRecordedLogs();
         bytes32 signature = keccak256("Graduated(address,address,address,uint256,uint256,bytes32,uint256)");
         bool found;
@@ -280,34 +281,54 @@ contract PumpFactoryTest {
         assertEq(adapter.callCount(), 0);
     }
 
+    function test_DoesNotGraduateAfterOnly202TokensOfOneBillionSupply() public {
+        PumpFactory billionFactory =
+            new PumpFactory(FEE_BPS, BASE_PRICE, SLOPE, GRADUATION_BPS, address(adapter));
+        (, address billionPairAddress) =
+            billionFactory.createToken("Billion", "BIL", 1_000_000_000 ether, "", "", "", "", "");
+        PumpPair billionPair = PumpPair(billionPairAddress);
+        (,, uint256 totalCost) = billionPair.quoteBuy(202 ether);
+
+        vm.prank(TRADER);
+        billionPair.buy{value: totalCost}(202 ether, totalCost);
+
+        assertEq(uint256(billionPair.status()), uint256(PumpPair.Status.ACTIVE));
+        assertEq(billionPair.graduationTokenAmount(), 800_000_000 ether);
+    }
+
+    function test_RevertBuyPastGraduationTokenAmount() public {
+        vm.expectRevert(PumpPair.SaleTargetExceeded.selector);
+        pair.quoteBuy(GRADUATION_TARGET + 1);
+    }
+
     function test_GraduatesOnlyOnceAndLocksBuySell() public {
         MockDexAdapter graduationAdapter = new MockDexAdapter();
         PumpFactory smallThresholdFactory =
-            new PumpFactory(FEE_BPS, BASE_PRICE, 0, BASE_PRICE, address(graduationAdapter));
+            new PumpFactory(FEE_BPS, BASE_PRICE, 0, GRADUATION_BPS, address(graduationAdapter));
         (address newTokenAddress, address newPairAddress) =
             smallThresholdFactory.createToken("Graduate", "GRAD", INITIAL_SUPPLY, "", "", "", "", "");
         PumpPair newPair = PumpPair(newPairAddress);
         MemeToken newToken = MemeToken(newTokenAddress);
-        (,, uint256 totalCost) = newPair.quoteBuy(1 ether);
+        (,, uint256 totalCost) = newPair.quoteBuy(GRADUATION_TARGET);
         vm.startPrank(TRADER);
-        newPair.buy{value: totalCost}(1 ether, totalCost);
+        newPair.buy{value: totalCost}(GRADUATION_TARGET, totalCost);
         vm.expectRevert(PumpPair.PairNotActive.selector);
         newPair.buy{value: totalCost}(1 ether, totalCost);
-        newToken.approve(address(newPair), 1 ether);
+        newToken.approve(address(newPair), GRADUATION_TARGET);
         vm.expectRevert(PumpPair.PairNotActive.selector);
-        newPair.sell(1 ether, 0);
+        newPair.sell(GRADUATION_TARGET, 0);
         vm.stopPrank();
         assertEq(graduationAdapter.callCount(), 1);
     }
 
-    function test_OwnerUpdatesAdapterAndThresholdForNewPairs() public {
+    function test_OwnerUpdatesAdapterAndGraduationBpsForNewPairs() public {
         MockDexAdapter replacement = new MockDexAdapter();
         factory.setDexAdapter(address(replacement));
-        factory.setGraduationThreshold(2 ether);
+        factory.setGraduationBps(9_000);
         (, address newPairAddress) = factory.createToken("Configured", "CFG", INITIAL_SUPPLY, "", "", "", "", "");
         PumpPair newPair = PumpPair(newPairAddress);
         assertEq(address(newPair.dexAdapter()), address(replacement));
-        assertEq(newPair.graduationThreshold(), 2 ether);
+        assertEq(newPair.graduationTokenAmount(), INITIAL_SUPPLY * 9_000 / 10_000);
     }
 
     function test_RevertUnauthorizedOrInvalidGraduationConfiguration() public {
@@ -315,16 +336,15 @@ contract PumpFactoryTest {
         vm.expectRevert(PumpFactory.Unauthorized.selector);
         factory.setDexAdapter(address(adapter));
         vm.expectRevert(PumpFactory.Unauthorized.selector);
-        factory.setGraduationThreshold(2 ether);
+        factory.setGraduationBps(9_000);
         vm.stopPrank();
 
         vm.expectRevert(PumpFactory.InvalidAddress.selector);
         factory.setDexAdapter(address(0));
-        vm.expectRevert(PumpFactory.InvalidThreshold.selector);
-        factory.setGraduationThreshold(0);
-        uint256 thresholdAboveLimit = factory.MAX_GRADUATION_THRESHOLD() + 1;
-        vm.expectRevert(PumpFactory.InvalidThreshold.selector);
-        factory.setGraduationThreshold(thresholdAboveLimit);
+        vm.expectRevert(PumpFactory.InvalidGraduationBps.selector);
+        factory.setGraduationBps(0);
+        vm.expectRevert(PumpFactory.InvalidGraduationBps.selector);
+        factory.setGraduationBps(10_000);
     }
 
     function testFuzz_BuyThenSellRestoresReserve(uint96 rawAmount) public {
@@ -368,11 +388,11 @@ contract PumpFactoryTest {
 
     function test_RevertInvalidFactoryConfiguration() public {
         vm.expectRevert(PumpFactory.InvalidFeeBps.selector);
-        new PumpFactory(1_001, BASE_PRICE, SLOPE, GRADUATION_THRESHOLD, address(adapter));
+        new PumpFactory(1_001, BASE_PRICE, SLOPE, GRADUATION_BPS, address(adapter));
         vm.expectRevert(PumpFactory.InvalidCurveParameters.selector);
-        new PumpFactory(FEE_BPS, 0, SLOPE, GRADUATION_THRESHOLD, address(adapter));
+        new PumpFactory(FEE_BPS, 0, SLOPE, GRADUATION_BPS, address(adapter));
         vm.expectRevert(PumpFactory.InvalidAddress.selector);
-        new PumpFactory(FEE_BPS, BASE_PRICE, SLOPE, GRADUATION_THRESHOLD, address(0));
+        new PumpFactory(FEE_BPS, BASE_PRICE, SLOPE, GRADUATION_BPS, address(0));
     }
 
     function test_RevertInvalidTokenMetadata() public {

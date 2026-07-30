@@ -18,9 +18,9 @@
                            "internalType":  "uint256"
                        },
                        {
-                           "name":  "graduationThreshold_",
-                           "type":  "uint256",
-                           "internalType":  "uint256"
+                           "name":  "graduationBps_",
+                           "type":  "uint16",
+                           "internalType":  "uint16"
                        },
                        {
                            "name":  "dexAdapter_",
@@ -47,15 +47,15 @@
     },
     {
         "type":  "function",
-        "name":  "MAX_GRADUATION_THRESHOLD",
+        "name":  "BPS_DENOMINATOR",
         "inputs":  [
 
                    ],
         "outputs":  [
                         {
                             "name":  "",
-                            "type":  "uint256",
-                            "internalType":  "uint256"
+                            "type":  "uint16",
+                            "internalType":  "uint16"
                         }
                     ],
         "stateMutability":  "view"
@@ -166,15 +166,15 @@
     },
     {
         "type":  "function",
-        "name":  "graduationThreshold",
+        "name":  "graduationBps",
         "inputs":  [
 
                    ],
         "outputs":  [
                         {
                             "name":  "",
-                            "type":  "uint256",
-                            "internalType":  "uint256"
+                            "type":  "uint16",
+                            "internalType":  "uint16"
                         }
                     ],
         "stateMutability":  "view"
@@ -249,12 +249,12 @@
     },
     {
         "type":  "function",
-        "name":  "setGraduationThreshold",
+        "name":  "setGraduationBps",
         "inputs":  [
                        {
-                           "name":  "newThreshold",
-                           "type":  "uint256",
-                           "internalType":  "uint256"
+                           "name":  "newBps",
+                           "type":  "uint16",
+                           "internalType":  "uint16"
                        }
                    ],
         "outputs":  [
@@ -466,19 +466,19 @@
     },
     {
         "type":  "event",
-        "name":  "GraduationThresholdUpdated",
+        "name":  "GraduationBpsUpdated",
         "inputs":  [
                        {
-                           "name":  "previousThreshold",
-                           "type":  "uint256",
+                           "name":  "previousBps",
+                           "type":  "uint16",
                            "indexed":  false,
-                           "internalType":  "uint256"
+                           "internalType":  "uint16"
                        },
                        {
-                           "name":  "newThreshold",
-                           "type":  "uint256",
+                           "name":  "newBps",
+                           "type":  "uint16",
                            "indexed":  false,
-                           "internalType":  "uint256"
+                           "internalType":  "uint16"
                        }
                    ],
         "anonymous":  false
@@ -545,7 +545,7 @@
                        {
                            "internalType":  "uint256",
                            "indexed":  false,
-                           "name":  "graduationThreshold",
+                           "name":  "graduationTokenAmount",
                            "type":  "uint256"
                        },
                        {
@@ -625,7 +625,7 @@
     },
     {
         "type":  "error",
-        "name":  "InvalidThreshold",
+        "name":  "InvalidGraduationBps",
         "inputs":  [
 
                    ]

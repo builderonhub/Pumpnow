@@ -38,7 +38,12 @@
         "internalType": "uint256"
       },
       {
-        "name": "graduationThreshold_",
+        "name": "initialSupply_",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "graduationTokenAmount_",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -162,7 +167,20 @@
   },
   {
     "type": "function",
-    "name": "graduationThreshold",
+    "name": "graduationTokenAmount",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "initialSupply",
     "inputs": [],
     "outputs": [
       {

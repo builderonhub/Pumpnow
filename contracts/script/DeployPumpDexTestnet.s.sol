@@ -22,14 +22,18 @@ contract DeployPumpDexTestnet {
         uint256 tradeFeeBps = vm.envUint("FEE_BPS");
         uint256 basePrice = vm.envUint("BASE_PRICE");
         uint256 slope = vm.envUint("CURVE_SLOPE");
-        uint256 graduationThreshold = vm.envUint("GRADUATION_THRESHOLD");
-        if (dexFeeBps > type(uint16).max || tradeFeeBps > type(uint16).max) revert ParameterOutOfRange();
+        uint256 graduationBps = vm.envUint("GRADUATION_BPS");
+        if (
+            dexFeeBps > type(uint16).max || tradeFeeBps > type(uint16).max
+                || graduationBps > type(uint16).max
+        ) revert ParameterOutOfRange();
 
         vm.startBroadcast(deployerKey);
         dex = new PumpDexFactory(uint16(dexFeeBps));
         adapter = new PumpDexAdapter(address(dex));
         dex.setPoolCreator(address(adapter));
-        factory = new PumpFactory(uint16(tradeFeeBps), basePrice, slope, graduationThreshold, address(adapter));
+        factory =
+            new PumpFactory(uint16(tradeFeeBps), basePrice, slope, uint16(graduationBps), address(adapter));
         adapter.setFactory(address(factory));
         vm.stopBroadcast();
     }

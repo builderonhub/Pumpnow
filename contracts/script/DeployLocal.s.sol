@@ -16,7 +16,7 @@ contract DeployLocal {
         uint256 deployerKey = vm.envUint("ANVIL_PRIVATE_KEY");
         vm.startBroadcast(deployerKey);
         adapter = new MockDexAdapter();
-        factory = new PumpFactory(100, 1e12, 1e12, 100 ether, address(adapter));
+        factory = new PumpFactory(100, 1e12, 1e12, 8_000, address(adapter));
         vm.stopBroadcast();
     }
 }

@@ -281,8 +281,8 @@ export function TradePanel({
     }
   }
 
-  useEffect(() => {
-    if (!receipt.isSuccess || !finalHash) {
+    useEffect(() => {
+    if (!receipt.isSuccess || !finalHash || !chainId) {
       return;
     }
 
@@ -292,15 +292,15 @@ export function TradePanel({
     const refresh = () =>
       Promise.all([
         queryClient.refetchQueries({
-          queryKey: ["token", address],
+          queryKey: ["token", address, chainId],
           type: "active",
         }),
         queryClient.refetchQueries({
-          queryKey: ["trades", address],
+          queryKey: ["trades", address, chainId],
           type: "active",
         }),
         queryClient.refetchQueries({
-          queryKey: ["holders", address],
+          queryKey: ["holders", address, chainId],
           type: "active",
         }),
         queryClient.invalidateQueries({
@@ -323,7 +323,7 @@ export function TradePanel({
         attempt += 1
       ) {
         try {
-          const indexedTrades = await api.trades(address);
+          const indexedTrades = await api.trades(address, chainId);
 
           const indexed = indexedTrades.data.some(
             (trade) =>
@@ -353,6 +353,7 @@ export function TradePanel({
       cancelled = true;
     };
   }, [
+    chainId,
     finalHash,
     queryClient,
     receipt.isSuccess,

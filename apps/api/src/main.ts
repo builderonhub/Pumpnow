@@ -31,12 +31,18 @@ async function bootstrap(): Promise<void> {
   app.setGlobalPrefix('api');
 
   const config = app.get(ConfigService);
-  const corsOrigins = config
-    .get<string>('CORS_ORIGINS', 'http://localhost:3000')
-    .split(',')
-    .map((origin) => origin.trim())
-    .filter(Boolean);
-
+  const corsOrigins = [
+    ...new Set([
+      ...config
+        .get<string>("CORS_ORIGINS", "http://localhost:3000")
+        .split(",")
+        .map((origin) => origin.trim())
+        .filter(Boolean),
+      "https://www.pumnow.xyz",
+      "https://pumnow.xyz",
+      "http://localhost:3000",
+    ]),
+  ];
   app.enableCors({
     origin: corsOrigins,
     credentials: true,

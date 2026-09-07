@@ -1,3 +1,4 @@
+import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import { IsDate, IsEnum, IsInt, IsOptional, Max, Min } from 'class-validator';
 
@@ -8,19 +9,29 @@ export enum CandleInterval {
 }
 
 export class ListCandlesDto {
-  @IsEnum(CandleInterval) interval: CandleInterval = CandleInterval.ONE_MINUTE;
+  @IsEnum(CandleInterval)
+  interval: CandleInterval = CandleInterval.ONE_MINUTE;
+
   @IsOptional()
   @Transform(({ value }) => new Date(String(value)))
   @IsDate()
   from?: Date;
+
   @IsOptional()
   @Transform(({ value }) => new Date(String(value)))
   @IsDate()
   to?: Date;
+
   @IsOptional()
   @Transform(({ value }) => Number(value))
   @IsInt()
   @Min(1)
   @Max(1000)
   limit = 500;
+
+  @ApiPropertyOptional({ description: 'Blockchain chain ID', example: 5042002 })
+  @IsOptional()
+  @Transform(({ value }) => Number(value))
+  @IsInt()
+  chainId?: number;
 }

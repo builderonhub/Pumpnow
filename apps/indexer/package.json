@@ -5,15 +5,15 @@
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
-    "build": "nest build",
+    "build": "tsc -p tsconfig.build.json --incremental false",
     "format": "prettier --write \"src/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
-    "start:prod": "node dist/main",
+    "start:prod": "node dist/main.js",
     "lint": "eslint \"src/**/*.ts\"",
     "typecheck": "tsc --noEmit -p tsconfig.build.json",
-    "start:indexer": "nest start",
+    "start:indexer": "npm run build && node dist/main.js",
     "backfill": "cross-env INDEXER_MODE=backfill nest start",
     "test": "jest --runInBand"
   },

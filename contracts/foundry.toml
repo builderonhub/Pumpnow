@@ -10,3 +10,4 @@ via_ir = true
 
 [rpc_endpoints]
 arc_testnet = "${ARC_TESTNET_RPC_URL}"
+opn_testnet = "${OPN_TESTNET_RPC_URL}"

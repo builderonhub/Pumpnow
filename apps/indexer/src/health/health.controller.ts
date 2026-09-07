@@ -1,7 +1,22 @@
-import { Controller, Get, ServiceUnavailableException } from "@nestjs/common";
+import {
+  Controller,
+  Get,
+  Inject,
+  ServiceUnavailableException,
+} from "@nestjs/common";
 import { PrismaService } from "../database/prisma.service";
 import { RedisService } from "../redis/redis.service";
-import { IndexerRunnerService } from "../indexer/indexer-runner.service";
+import {
+  createIndexerRunnerToken,
+  IndexerRunnerService,
+} from "../indexer/indexer-runner.service";
+
+type RunnerHealth = {
+  mode: string;
+  running: boolean;
+  latestIndexedBlock: string | null;
+  latestChainBlock: string | null;
+};
 
 type HealthResponse = {
   status: "ok";
@@ -9,36 +24,69 @@ type HealthResponse = {
   checks: {
     postgres: "up";
     redis: "up";
-    latestIndexedBlock: string | null;
-    latestChainBlock: string | null;
-    worker: "running" | "idle";
+    chains: {
+      arc: RunnerHealth;
+      opn: RunnerHealth;
+    };
   };
   timestamp: string;
 };
-
+function serializeHealth(
+  health: {
+    mode: string;
+    running: boolean;
+    latestIndexedBlock: bigint | null;
+    latestChainBlock: bigint | null;
+  },
+): RunnerHealth {
+  return {
+    mode: health.mode,
+    running: health.running,
+    latestIndexedBlock:
+      health.latestIndexedBlock === null
+        ? null
+        : health.latestIndexedBlock.toString(),
+    latestChainBlock:
+      health.latestChainBlock === null
+        ? null
+        : health.latestChainBlock.toString(),
+  };
+}
 @Controller("health")
 export class HealthController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
-    private readonly indexer: IndexerRunnerService,
+
+    @Inject(createIndexerRunnerToken("arc"))
+    private readonly arcIndexer: IndexerRunnerService,
+
+    @Inject(createIndexerRunnerToken("opn"))
+    private readonly opnIndexer: IndexerRunnerService,
   ) {}
 
   @Get()
   async check(): Promise<HealthResponse> {
-    const [postgres, redis, indexer] = await Promise.allSettled([
+    const [postgres, redis, arc, opn] = await Promise.allSettled([
       this.prisma.$queryRaw`SELECT 1`,
       this.redis.ping(),
-      this.indexer.health(),
+      this.arcIndexer.health(),
+      this.opnIndexer.health(),
     ]);
+
+    const arcHealthy =
+      arc.status === "fulfilled" &&
+      (arc.value.mode !== "live" || arc.value.running);
+
+    const opnHealthy =
+      opn.status === "fulfilled" &&
+      (opn.value.mode !== "live" || opn.value.running);
 
     if (
       postgres.status === "rejected" ||
       redis.status === "rejected" ||
-      indexer.status === "rejected" ||
-      (indexer.status === "fulfilled" &&
-        indexer.value.mode === "live" &&
-        !indexer.value.running)
+      !arcHealthy ||
+      !opnHealthy
     ) {
       throw new ServiceUnavailableException({
         status: "error",
@@ -46,10 +94,26 @@ export class HealthController {
         checks: {
           postgres: postgres.status === "fulfilled" ? "up" : "down",
           redis: redis.status === "fulfilled" ? "up" : "down",
-          indexer:
-            indexer.status === "fulfilled" && indexer.value.running
-              ? "up"
-              : "down",
+          chains: {
+            arc:
+              arc.status === "fulfilled"
+                ? arc.value
+                : {
+                    mode: "unknown",
+                    running: false,
+                    latestIndexedBlock: null,
+                    latestChainBlock: null,
+                  },
+            opn:
+              opn.status === "fulfilled"
+                ? opn.value
+                : {
+                    mode: "unknown",
+                    running: false,
+                    latestIndexedBlock: null,
+                    latestChainBlock: null,
+                  },
+          },
         },
         timestamp: new Date().toISOString(),
       });
@@ -61,10 +125,10 @@ export class HealthController {
       checks: {
         postgres: "up",
         redis: "up",
-        latestIndexedBlock:
-          indexer.value.latestIndexedBlock?.toString() ?? null,
-        latestChainBlock: indexer.value.latestChainBlock?.toString() ?? null,
-        worker: indexer.value.running ? "running" : "idle",
+        chains: {
+          arc: serializeHealth(arc.value),
+          opn: serializeHealth(opn.value),
+        },
       },
       timestamp: new Date().toISOString(),
     };

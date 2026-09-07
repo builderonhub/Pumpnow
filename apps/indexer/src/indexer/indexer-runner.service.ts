@@ -14,6 +14,15 @@ import { StructuredLogger } from "./structured-logger.service";
 const delay = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
+export type IndexerRunnerConfig = {
+  name: string;
+  startBlockEnv: string;
+};
+
+export function createIndexerRunnerToken(name: string): string {
+  return `IndexerRunnerService:${name}`;
+}
+
 export class IndexerLeaseLostError extends Error {
   constructor() {
     super("Indexer lock was lost");
@@ -29,6 +38,7 @@ export class IndexerRunnerService
   private running = false;
   private hasLease = false;
   private latestChainBlock: bigint | null = null;
+
   private readonly mode: "live" | "backfill";
   private readonly confirmations: bigint;
   private readonly range: bigint;
@@ -46,37 +56,68 @@ export class IndexerRunnerService
     private readonly processor: EventProcessorService,
     private readonly lock: RedisLockService,
     private readonly logger: StructuredLogger,
+    runnerConfig: IndexerRunnerConfig,
   ) {
     this.mode =
-      config.get("INDEXER_MODE", "live") === "backfill" ? "backfill" : "live";
-    this.confirmations = BigInt(config.get("INDEXER_CONFIRMATIONS", "12"));
-    this.range = BigInt(config.get("INDEXER_BLOCK_RANGE", "1000"));
-    this.pollMs = Number(config.get("INDEXER_POLL_INTERVAL_MS", "5000"));
-    this.maxRetries = Number(config.get("INDEXER_MAX_RETRIES", "5"));
-    this.lockTtlMs = Number(config.get("INDEXER_LOCK_TTL_MS", "30000"));
-    this.startBlock = BigInt(config.get("INDEXER_START_BLOCK", "0"));
-    this.stateKey = `pumpnow:${this.source.chainId}:${this.source.factoryAddress.toLowerCase()}`;
+      config.get("INDEXER_MODE", "live") === "backfill"
+        ? "backfill"
+        : "live";
+
+    this.confirmations = BigInt(
+      config.get("INDEXER_CONFIRMATIONS", "12"),
+    );
+
+    this.range = BigInt(
+      config.get("INDEXER_BLOCK_RANGE", "1000"),
+    );
+
+    this.pollMs = Number(
+      config.get("INDEXER_POLL_INTERVAL_MS", "5000"),
+    );
+
+    this.maxRetries = Number(
+      config.get("INDEXER_MAX_RETRIES", "5"),
+    );
+
+    this.lockTtlMs = Number(
+      config.get("INDEXER_LOCK_TTL_MS", "30000"),
+    );
+
+    this.startBlock = BigInt(
+      config.get(runnerConfig.startBlockEnv, "0"),
+    );
+
+    this.stateKey =
+      `pumpnow:${this.source.chainId}:${this.source.factoryAddress.toLowerCase()}`;
+
     this.lockKey = `indexer:lock:${this.stateKey}`;
   }
 
   onApplicationBootstrap(): void {
     void this.run();
   }
+
   async onApplicationShutdown(): Promise<void> {
     this.stopped = true;
-    if (this.hasLease) await this.lock.release(this.lockKey);
+
+    if (this.hasLease) {
+      await this.lock.release(this.lockKey);
+    }
+
     this.hasLease = false;
   }
+
   async health(): Promise<IndexerHealth> {
     const [state, activeLease] = await Promise.all([
-      this.prisma.indexerState.findUnique({ where: { key: this.stateKey } }),
+      this.prisma.indexerState.findUnique({
+        where: { key: this.stateKey },
+      }),
       this.lock.isActive(this.lockKey),
     ]);
+
     return {
       latestIndexedBlock: state?.lastBlockNumber ?? null,
       latestChainBlock: this.latestChainBlock,
-      // The Redis lease is the source of truth when multiple replicas or
-      // multiple Nest module contexts compete to become the single leader.
       running: this.running || activeLease,
       mode: this.mode,
     };
@@ -84,109 +125,207 @@ export class IndexerRunnerService
 
   async run(): Promise<void> {
     if (this.running) return;
+
     this.running = true;
+
     this.logger.info("indexer.started", {
       mode: this.mode,
       chainId: this.source.chainId.toString(),
+      factoryAddress: this.source.factoryAddress,
     });
+
     try {
       do {
         if (!this.hasLease) {
-          this.hasLease = await this.lock.acquire(this.lockKey, this.lockTtlMs);
+          this.hasLease = await this.lock.acquire(
+            this.lockKey,
+            this.lockTtlMs,
+          );
+
           if (!this.hasLease) {
             this.logger.info("indexer.lock_unavailable", {
               chainId: this.source.chainId.toString(),
             });
-            if (this.mode === "backfill" || this.stopped) break;
+
+            if (this.mode === "backfill" || this.stopped) {
+              break;
+            }
+
             await delay(this.pollMs);
             continue;
           }
+
           this.logger.info("indexer.lock_acquired", {
             chainId: this.source.chainId.toString(),
           });
         }
+
         try {
           await this.syncOnce();
         } catch (error) {
           if (error instanceof IndexerLeaseLostError) {
             this.hasLease = false;
-            this.logger.error("indexer.lease_lost", error);
+
+            this.logger.error(
+              "indexer.lease_lost",
+              error,
+            );
           } else {
-            this.logger.error("indexer.sync_failed", error);
+            this.logger.error(
+              "indexer.sync_failed",
+              error,
+            );
           }
-          if (this.mode === "backfill") throw error;
+
+          if (this.mode === "backfill") {
+            throw error;
+          }
         }
-        if (this.mode === "backfill") break;
+
+        if (this.mode === "backfill") {
+          break;
+        }
+
         await delay(this.pollMs);
       } while (!this.stopped);
     } catch (error) {
-      this.logger.error("indexer.stopped_with_error", error);
+      this.logger.error(
+        "indexer.stopped_with_error",
+        error,
+      );
     } finally {
       this.running = false;
-      if (this.hasLease) await this.lock.release(this.lockKey);
+
+      if (this.hasLease) {
+        await this.lock.release(this.lockKey);
+      }
+
       this.hasLease = false;
     }
   }
 
   async syncOnce(): Promise<void> {
-    if (!(await this.lock.refresh(this.lockKey, this.lockTtlMs)))
+    if (
+      !(await this.lock.refresh(
+        this.lockKey,
+        this.lockTtlMs,
+      ))
+    ) {
       throw new IndexerLeaseLostError();
-    this.latestChainBlock = await this.retry("rpc.latest_block", () =>
-      this.source.latestBlock(),
+    }
+
+    this.latestChainBlock = await this.retry(
+      "rpc.latest_block",
+      () => this.source.latestBlock(),
     );
-    if (this.latestChainBlock < this.confirmations) return;
-    const safeHead = this.latestChainBlock - this.confirmations;
-    const state = await this.prisma.indexerState.findUnique({
-      where: { key: this.stateKey },
-    });
+
+    if (this.latestChainBlock < this.confirmations) {
+      return;
+    }
+
+    const safeHead =
+      this.latestChainBlock - this.confirmations;
+
+    const state =
+      await this.prisma.indexerState.findUnique({
+        where: { key: this.stateKey },
+      });
+
     if (state?.lastBlockHash) {
-      const canonicalHash = await this.retry("rpc.checkpoint_hash", () =>
-        this.source.blockHash(state.lastBlockNumber),
+      const canonicalHash = await this.retry(
+        "rpc.checkpoint_hash",
+        () => this.source.blockHash(state.lastBlockNumber),
       );
-      if (canonicalHash.toLowerCase() !== state.lastBlockHash.toLowerCase())
+
+      if (
+        canonicalHash.toLowerCase() !==
+        state.lastBlockHash.toLowerCase()
+      ) {
         throw new Error(
           `Reorg detected at checkpoint ${state.lastBlockNumber}; run a backfill from an earlier block`,
         );
+      }
     }
-    let from = state ? state.lastBlockNumber + 1n : this.startBlock;
+
+    let from = state
+      ? state.lastBlockNumber + 1n
+      : this.startBlock;
+
     while (from <= safeHead && !this.stopped) {
       const to =
-        from + this.range - 1n < safeHead ? from + this.range - 1n : safeHead;
-      const logs = await this.retry("rpc.get_logs", () =>
-        this.source.logs(from, to),
+        from + this.range - 1n < safeHead
+          ? from + this.range - 1n
+          : safeHead;
+
+      const logs = await this.retry(
+        "rpc.get_logs",
+        () => this.source.logs(from, to),
       );
+
       let processed = 0;
+
       for (const log of logs) {
-        if (!(await this.lock.refresh(this.lockKey, this.lockTtlMs)))
-          throw new IndexerLeaseLostError();
         if (
-          (await this.processor.process(log, this.source.chainId)) ===
-          "processed"
-        )
+          !(await this.lock.refresh(
+            this.lockKey,
+            this.lockTtlMs,
+          ))
+        ) {
+          throw new IndexerLeaseLostError();
+        }
+
+        if (
+          (await this.processor.process(
+            log,
+            this.source.chainId,
+          )) === "processed"
+        ) {
           processed += 1;
+        }
       }
-      const hash = await this.retry("rpc.range_hash", () =>
-        this.source.blockHash(to),
+
+      const hash = await this.retry(
+        "rpc.range_hash",
+        () => this.source.blockHash(to),
       );
+
       await this.prisma.indexerState.upsert({
-        where: { key: this.stateKey },
+        where: {
+          key: this.stateKey,
+        },
         create: {
           key: this.stateKey,
           chainId: this.source.chainId,
           lastBlockNumber: to,
           lastBlockHash: hash.toLowerCase(),
         },
-        update: { lastBlockNumber: to, lastBlockHash: hash.toLowerCase() },
+        update: {
+          lastBlockNumber: to,
+          lastBlockHash: hash.toLowerCase(),
+        },
       });
-      this.logger.info("indexer.range_complete", {
-        from: from.toString(),
-        to: to.toString(),
-        logs: logs.length,
-        processed,
-      });
+
+      this.logger.info(
+        "indexer.range_complete",
+        {
+          chainId: this.source.chainId.toString(),
+          from: from.toString(),
+          to: to.toString(),
+          logs: logs.length,
+          processed,
+        },
+      );
+
       from = to + 1n;
-      if (!(await this.lock.refresh(this.lockKey, this.lockTtlMs)))
+
+      if (
+        !(await this.lock.refresh(
+          this.lockKey,
+          this.lockTtlMs,
+        ))
+      ) {
         throw new IndexerLeaseLostError();
+      }
     }
   }
 
@@ -195,22 +334,42 @@ export class IndexerRunnerService
     operation: () => Promise<T>,
   ): Promise<T> {
     let lastError: unknown;
-    for (let attempt = 0; attempt <= this.maxRetries; attempt += 1) {
+
+    for (
+      let attempt = 0;
+      attempt <= this.maxRetries;
+      attempt += 1
+    ) {
       try {
         return await operation();
       } catch (error) {
         lastError = error;
-        if (attempt === this.maxRetries) break;
+
+        if (attempt === this.maxRetries) {
+          break;
+        }
+
         const waitMs =
-          Math.min(30_000, 250 * 2 ** attempt) +
+          Math.min(
+            30_000,
+            250 * 2 ** attempt,
+          ) +
           Math.floor(Math.random() * 100);
-        this.logger.error(event, error, {
-          attempt: attempt + 1,
-          retryInMs: waitMs,
-        });
+
+        this.logger.error(
+          event,
+          error,
+          {
+            attempt: attempt + 1,
+            retryInMs: waitMs,
+            chainId: this.source.chainId.toString(),
+          },
+        );
+
         await delay(waitMs);
       }
     }
+
     throw lastError;
   }
 }

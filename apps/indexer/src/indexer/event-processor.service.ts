@@ -37,6 +37,7 @@ export class EventProcessorService {
       const relevant = await this.prisma.$transaction(async (tx) => {
         await tx.indexedEvent.create({
           data: {
+            chainId,
             transactionHash: log.transactionHash.toLowerCase(),
             logIndex: log.logIndex,
             blockNumber: log.blockNumber,
@@ -143,7 +144,12 @@ export class EventProcessorService {
       ? log.args.amountIn
       : log.args.amountOut;
     const pool = await tx.liquidityPool.findUnique({
-      where: { tokenAddress },
+      where: {
+        chainId_tokenAddress: {
+          chainId,
+          tokenAddress,
+        },
+      },
     });
     // Arc-wide event queries may encounter the same signature on unrelated
     // contracts. Unknown tokens are not PumpNow events and are ignored.
@@ -155,10 +161,21 @@ export class EventProcessorService {
     }
     await this.wallet(tx, walletAddress);
     const token = await tx.token.findUniqueOrThrow({
-      where: { address: tokenAddress },
+            where: {
+        chainId_address: {
+          chainId,
+          address: tokenAddress,
+        },
+      },
     });
     const existing = await tx.holder.findUnique({
-      where: { tokenAddress_walletAddress: { tokenAddress, walletAddress } },
+      where: {
+        chainId_tokenAddress_walletAddress: {
+          chainId,
+          tokenAddress,
+          walletAddress,
+        },
+      },
     });
     const previous = existing ? BigInt(existing.balance.toFixed(0)) : 0n;
     const next =
@@ -170,8 +187,15 @@ export class EventProcessorService {
     const supply = BigInt(token.totalSupply.toFixed(0));
     const ownershipBps = supply === 0n ? 0 : Number((next * 10_000n) / supply);
     await tx.holder.upsert({
-      where: { tokenAddress_walletAddress: { tokenAddress, walletAddress } },
+      where: {
+            chainId_tokenAddress_walletAddress: {
+              chainId,
+              tokenAddress,
+              walletAddress,
+            },
+          },
       create: {
+        chainId,
         tokenAddress,
         walletAddress,
         balance: next.toString(),
@@ -187,6 +211,7 @@ export class EventProcessorService {
     const volume = nativeAmount(quoteAmount);
     await tx.trade.create({
       data: {
+        chainId,
         transactionHash: log.transactionHash.toLowerCase(),
         logIndex: log.logIndex,
         tokenAddress,
@@ -207,9 +232,15 @@ export class EventProcessorService {
       log.blockTimestamp,
       price,
       volume,
+      chainId,
     );
     await tx.token.update({
-      where: { address: tokenAddress },
+      where: {
+          chainId_address: {
+            chainId,
+            address: tokenAddress,
+          },
+        },
       data: {
         price,
         marketCap,
@@ -224,7 +255,12 @@ export class EventProcessorService {
       },
     });
     await tx.liquidityPool.update({
-      where: { tokenAddress },
+      where: {
+        chainId_tokenAddress: {
+          chainId,
+          tokenAddress,
+        },
+      },
       data: {
         tokenReserve: log.args.tokenReserve.toString(),
         quoteReserve: log.args.nativeReserve.toString(),
@@ -270,6 +306,7 @@ export class EventProcessorService {
     await this.wallet(tx, creator);
     await tx.token.create({
       data: {
+        chainId,
         address: token,
         creatorAddress: creator,
         name: log.args.name,
@@ -289,6 +326,7 @@ export class EventProcessorService {
     });
     await tx.liquidityPool.create({
       data: {
+        chainId,
         address: pair,
         tokenAddress: token,
         quoteTokenAddress: ZERO_ADDRESS,
@@ -329,7 +367,12 @@ export class EventProcessorService {
             tokenAmount.toString(),
           );
     const pool = await tx.liquidityPool.findUnique({
-      where: { tokenAddress },
+      where: {
+        chainId_tokenAddress: {
+          chainId,
+          tokenAddress,
+        },
+      },
       select: { address: true },
     });
     if (!pool) return false;
@@ -339,7 +382,12 @@ export class EventProcessorService {
       );
     await this.wallet(tx, walletAddress);
     const token = await tx.token.findUniqueOrThrow({
-      where: { address: tokenAddress },
+      where: {
+        chainId_address: {
+          chainId,
+          address: tokenAddress,
+        },
+      },
       select: {
         totalSupply: true,
         graduationThreshold: true,
@@ -347,8 +395,15 @@ export class EventProcessorService {
       },
     });
     const existing = await tx.holder.findUnique({
-      where: { tokenAddress_walletAddress: { tokenAddress, walletAddress } },
+      where: {
+        chainId_tokenAddress_walletAddress: {
+          chainId,
+          tokenAddress,
+          walletAddress,
+        },
+      },
     });
+    
     const previous = existing ? BigInt(existing.balance.toFixed(0)) : 0n;
     const next =
       side === TradeSide.BUY ? previous + tokenAmount : previous - tokenAmount;
@@ -359,8 +414,15 @@ export class EventProcessorService {
     const supply = BigInt(token.totalSupply.toFixed(0));
     const ownershipBps = supply === 0n ? 0 : Number((next * 10_000n) / supply);
     await tx.holder.upsert({
-      where: { tokenAddress_walletAddress: { tokenAddress, walletAddress } },
+      where: {
+        chainId_tokenAddress_walletAddress: {
+          chainId,
+          tokenAddress,
+          walletAddress,
+        },
+      },
       create: {
+        chainId,
         tokenAddress,
         walletAddress,
         balance: next.toString(),
@@ -384,6 +446,7 @@ export class EventProcessorService {
     );
     await tx.trade.create({
       data: {
+        chainId,
         transactionHash: log.transactionHash.toLowerCase(),
         logIndex: log.logIndex,
         tokenAddress,
@@ -404,9 +467,15 @@ export class EventProcessorService {
       log.blockTimestamp,
       price,
       volume,
+      chainId,
     );
     await tx.token.update({
-      where: { address: tokenAddress },
+      where: {
+        chainId_address: {
+          chainId,
+          address: tokenAddress,
+        },
+      },
       data: {
         price,
         marketCap,
@@ -419,7 +488,12 @@ export class EventProcessorService {
       },
     });
     await tx.liquidityPool.update({
-      where: { tokenAddress },
+      where: {
+        chainId_tokenAddress: {
+          chainId,
+          tokenAddress,
+        },
+      },
       data: {
         quoteReserve: log.args.nativeReserve.toString(),
         tokenReserve: {
@@ -462,6 +536,7 @@ export class EventProcessorService {
     timestamp: Date,
     price: Prisma.Decimal,
     volume: Prisma.Decimal,
+    chainId: bigint,
   ): Promise<void> {
     const definitions = [
       ["candles_1m", 60_000],
@@ -471,10 +546,10 @@ export class EventProcessorService {
     for (const [table, intervalMs] of definitions) {
       const openTime = candleOpenTime(timestamp, intervalMs);
       await tx.$executeRaw`
-        INSERT INTO ${Prisma.raw(table)}
-          (token_address, open_time, open, high, low, close, volume, trade_count)
-        VALUES (${tokenAddress}, ${openTime}, ${price}, ${price}, ${price}, ${price}, ${volume}, 1)
-        ON CONFLICT (token_address, open_time) DO UPDATE SET
+          INSERT INTO ${Prisma.raw(table)}
+            (chain_id, token_address, open_time, open, high, low, close, volume, trade_count)
+          VALUES (${chainId}, ${tokenAddress}, ${openTime}, ${price}, ${price}, ${price}, ${price}, ${volume}, 1)
+          ON CONFLICT (chain_id, token_address, open_time) DO UPDATE SET
           high = GREATEST(${Prisma.raw(table)}.high, EXCLUDED.high),
           low = LEAST(${Prisma.raw(table)}.low, EXCLUDED.low),
           close = EXCLUDED.close,
@@ -495,6 +570,7 @@ export class EventProcessorService {
     await this.wallet(tx, payer);
     await tx.feeHistory.create({
       data: {
+        chainId,
         transactionHash: log.transactionHash.toLowerCase(),
         logIndex: log.logIndex,
         tokenAddress: token === ZERO_ADDRESS ? null : token,
@@ -520,14 +596,24 @@ export class EventProcessorService {
     const token = log.args.token.toLowerCase();
     const dexPoolAddress = `0x${log.args.positionId.slice(-40)}`.toLowerCase();
     const pool = await tx.liquidityPool.findUnique({
-      where: { tokenAddress: token },
+      where: {
+        chainId_tokenAddress: {
+          chainId,
+          tokenAddress: token,
+        },
+      },
       select: { address: true },
     });
     if (!pool) return false;
     if (pool.address.toLowerCase() !== log.address.toLowerCase())
       throw new Error(`Event source is not the registered pair for ${token}`);
-    await tx.token.update({
-      where: { address: token },
+      await tx.token.update({
+        where: {
+          chainId_address: {
+            chainId,
+            address: token,
+          },
+        },
       data: {
         status: TokenStatus.GRADUATED,
         bondingCurveProgress: 100,
@@ -535,7 +621,12 @@ export class EventProcessorService {
       },
     });
     await tx.liquidityPool.update({
-      where: { tokenAddress: token },
+      where: {
+        chainId_tokenAddress: {
+          chainId,
+          tokenAddress: token,
+        },
+      },
       data: {
         address: dexPoolAddress,
         dex: log.args.adapter.toLowerCase(),

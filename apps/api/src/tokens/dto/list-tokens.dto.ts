@@ -1,22 +1,39 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
+import { IsEnum, IsInt, IsOptional } from 'class-validator';
 import { TokenStatus } from '@pumpnow/database';
-import { IsEnum, IsOptional } from 'class-validator';
 import { PaginationDto } from '../../common/dto/pagination.dto';
 
 export enum TokenSort {
   NEW = 'new',
+  NEWEST = 'newest',
+  TOP_VOLUME = 'top_volume',
   TRENDING = 'trending',
-  TOP_VOLUME = 'top-volume',
 }
 
 export class ListTokensDto extends PaginationDto {
-  @ApiPropertyOptional({ enum: TokenStatus })
+  @ApiPropertyOptional({
+    description: 'Blockchain chain ID',
+    example: 5042002,
+  })
+  @IsOptional()
+  @Transform(({ value }) => Number(value))
+  @IsInt()
+  chainId?: number;
+
+  @ApiPropertyOptional({
+    description: 'Token status',
+    enum: TokenStatus,
+  })
   @IsOptional()
   @IsEnum(TokenStatus)
   status?: TokenStatus;
 
-  @ApiPropertyOptional({ enum: TokenSort, default: TokenSort.NEW })
+  @ApiPropertyOptional({
+    enum: TokenSort,
+    default: TokenSort.NEWEST,
+  })
   @IsOptional()
   @IsEnum(TokenSort)
-  sort: TokenSort = TokenSort.NEW;
+  sort: TokenSort = TokenSort.NEWEST;
 }

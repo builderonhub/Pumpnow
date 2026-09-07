@@ -1,5 +1,4 @@
 import { Injectable } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
 import {
   createPublicClient,
   decodeEventLog,
@@ -17,14 +16,29 @@ import {
 import { AbiLoader } from "./abi.loader";
 import type { IndexedLog } from "./indexer.types";
 
+export type BlockchainSourceConfig = {
+  name: string;
+  chainId: bigint;
+  rpcUrls: string[];
+  factoryAddress: string;
+  startBlockEnv: string;
+};
+
+export function createBlockchainSourceToken(name: string): string {
+  return `BlockchainSourceService:${name}`;
+}
+
 type Args = Record<string, unknown>;
+
 const wait = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
 @Injectable()
 export class BlockchainSourceService {
+  readonly name: string;
   readonly chainId: bigint;
   readonly factoryAddress: Address;
+
   private readonly client: PublicClient;
   private readonly factoryAbi: Abi;
   private readonly pairAbi: Abi;
@@ -32,22 +46,38 @@ export class BlockchainSourceService {
   private readonly dexPoolAbi: Abi;
   private treasuryAddress?: Address;
 
-  constructor(config: ConfigService, abiLoader: AbiLoader) {
-    const rpcUrls = config
-      .get<string>("RPC_URLS", config.getOrThrow<string>("RPC_URL"))
-      .split(",")
-      .map((value) => value.trim())
-      .filter(Boolean);
-    const factory = config.getOrThrow<string>("PUMP_FACTORY_ADDRESS");
-    if (!isAddress(factory)) throw new Error("PUMP_FACTORY_ADDRESS is invalid");
-    this.factoryAddress = factory;
-    this.chainId = BigInt(config.getOrThrow<string>("CHAIN_ID"));
+  constructor(
+    config: BlockchainSourceConfig,
+    abiLoader: AbiLoader,
+  ) {
+    if (!config.rpcUrls.length) {
+      throw new Error(
+        `${config.name}: at least one RPC URL is required`,
+      );
+    }
+
+    if (!isAddress(config.factoryAddress)) {
+      throw new Error(
+        `${config.name}: factory address is invalid`,
+      );
+    }
+
+    this.name = config.name;
+    this.chainId = config.chainId;
+    this.factoryAddress = config.factoryAddress;
+
     this.client = createPublicClient({
       transport: fallback(
-        rpcUrls.map((url) => http(url)),
+        config.rpcUrls.map((url) =>
+          http(url, {
+            retryCount: 3,
+            retryDelay: 500,
+          }),
+        ),
         { rank: true },
       ),
     });
+
     this.factoryAbi = abiLoader.load("PumpFactory");
     this.pairAbi = abiLoader.load("PumpPair");
     this.treasuryAbi = abiLoader.load("Treasury");
@@ -57,15 +87,29 @@ export class BlockchainSourceService {
   latestBlock(): Promise<bigint> {
     return this.client.getBlockNumber();
   }
+
   async blockHash(blockNumber: bigint): Promise<Hex> {
     const block = await this.client.getBlock({ blockNumber });
-    if (!block.hash) throw new Error(`Missing hash for block ${blockNumber}`);
+
+    if (!block.hash) {
+      throw new Error(
+        `${this.name}: missing hash for block ${blockNumber}`,
+      );
+    }
+
     return block.hash;
   }
 
-  async logs(fromBlock: bigint, toBlock: bigint): Promise<IndexedLog[]> {
+  async logs(
+    fromBlock: bigint,
+    toBlock: bigint,
+  ): Promise<IndexedLog[]> {
     const treasuryAddress = await this.getTreasuryAddress();
-    const events: Array<{ address?: Address; event: AbiEvent }> = [
+
+    const events: Array<{
+      address?: Address;
+      event: AbiEvent;
+    }> = [
       {
         address: this.factoryAddress,
         event: getAbiItem({
@@ -73,11 +117,29 @@ export class BlockchainSourceService {
           name: "TokenCreated",
         }) as AbiEvent,
       },
-      { event: getAbiItem({ abi: this.pairAbi, name: "Buy" }) as AbiEvent },
-      { event: getAbiItem({ abi: this.pairAbi, name: "Sell" }) as AbiEvent },
-      { event: getAbiItem({ abi: this.dexPoolAbi, name: "Swap" }) as AbiEvent },
       {
-        event: getAbiItem({ abi: this.pairAbi, name: "Graduated" }) as AbiEvent,
+        event: getAbiItem({
+          abi: this.pairAbi,
+          name: "Buy",
+        }) as AbiEvent,
+      },
+      {
+        event: getAbiItem({
+          abi: this.pairAbi,
+          name: "Sell",
+        }) as AbiEvent,
+      },
+      {
+        event: getAbiItem({
+          abi: this.dexPoolAbi,
+          name: "Swap",
+        }) as AbiEvent,
+      },
+      {
+        event: getAbiItem({
+          abi: this.pairAbi,
+          name: "Graduated",
+        }) as AbiEvent,
       },
       {
         address: treasuryAddress,
@@ -87,68 +149,127 @@ export class BlockchainSourceService {
         }) as AbiEvent,
       },
     ];
-    // Arc's public RPC does not reliably support OR-ed event topics and also
-    // rate-limits bursts. Retry each event independently and pace requests so
-    // progress on earlier event types is not discarded by a later throttle.
+
+    // Arc's public RPC can rate-limit bursts and may not reliably
+    // support OR-ed event topics. We keep the same safe strategy
+    // for both chains: query each event independently and pace requests.
     const groups: Log[][] = [];
+
     for (const [index, { address, event }] of events.entries()) {
-      if (index > 0) await wait(750);
+      if (index > 0) {
+        await wait(750);
+      }
+
       groups.push(
-        await this.getLogsWithRetry(address, event, fromBlock, toBlock),
+        await this.getLogsWithRetry(
+          address,
+          event,
+          fromBlock,
+          toBlock,
+        ),
       );
     }
+
     const raw = groups
       .flat()
       .sort(
         (a, b) =>
-          Number((a.blockNumber ?? 0n) - (b.blockNumber ?? 0n)) ||
+          Number(
+            (a.blockNumber ?? 0n) -
+              (b.blockNumber ?? 0n),
+          ) ||
           (a.logIndex ?? 0) - (b.logIndex ?? 0),
       );
+
     const blockNumbers = [
       ...new Set(
         raw
           .map((log) => log.blockNumber)
-          .filter((value): value is bigint => value !== null),
+          .filter(
+            (value): value is bigint =>
+              value !== null,
+          ),
       ),
     ];
+
     const timestamps = new Map<bigint, Date>();
-    // Fetch block timestamps in small batches. This keeps log processing fast
-    // without creating a burst large enough to trip managed RPC rate limits.
-    for (let offset = 0; offset < blockNumbers.length; offset += 8) {
-      const batch = blockNumbers.slice(offset, offset + 8);
+
+    for (
+      let offset = 0;
+      offset < blockNumbers.length;
+      offset += 8
+    ) {
+      const batch = blockNumbers.slice(
+        offset,
+        offset + 8,
+      );
+
       const blocks = await Promise.all(
-        batch.map((blockNumber) => this.client.getBlock({ blockNumber })),
+        batch.map((blockNumber) =>
+          this.client.getBlock({ blockNumber }),
+        ),
       );
+
       blocks.forEach((block, index) =>
-        timestamps.set(batch[index], new Date(Number(block.timestamp) * 1000)),
+        timestamps.set(
+          batch[index],
+          new Date(
+            Number(block.timestamp) * 1000,
+          ),
+        ),
       );
-      if (offset + 8 < blockNumbers.length) await wait(200);
+
+      if (offset + 8 < blockNumbers.length) {
+        await wait(200);
+      }
     }
+
     const output: IndexedLog[] = [];
+
     for (const log of raw) {
       if (
         log.blockNumber === null ||
         log.blockHash === null ||
         log.transactionHash === null ||
         log.logIndex === null
-      )
+      ) {
         continue;
-      const timestamp = timestamps.get(log.blockNumber);
-      if (!timestamp)
-        throw new Error(`Missing timestamp for block ${log.blockNumber}`);
-      const decoded = this.decode(log, timestamp);
+      }
+
+      const timestamp = timestamps.get(
+        log.blockNumber,
+      );
+
+      if (!timestamp) {
+        throw new Error(
+          `${this.name}: missing timestamp for block ${log.blockNumber}`,
+        );
+      }
+
+      const decoded = this.decode(
+        log,
+        timestamp,
+      );
+
       if (
         decoded.eventName === "TokenCreated" &&
-        decoded.address.toLowerCase() !== this.factoryAddress.toLowerCase()
-      )
+        decoded.address.toLowerCase() !==
+          this.factoryAddress.toLowerCase()
+      ) {
         continue;
+      }
+
       if (
         decoded.eventName === "FeeCollected" &&
-        decoded.address.toLowerCase() !== treasuryAddress.toLowerCase()
-      )
+        decoded.address.toLowerCase() !==
+          treasuryAddress.toLowerCase()
+      ) {
         continue;
+      }
+
       output.push(decoded);
     }
+
     return output;
   }
 
@@ -159,6 +280,7 @@ export class BlockchainSourceService {
     toBlock: bigint,
   ): Promise<Log[]> {
     let lastError: unknown;
+
     for (let attempt = 0; attempt < 8; attempt += 1) {
       try {
         return await this.client.getLogs({
@@ -169,39 +291,64 @@ export class BlockchainSourceService {
         });
       } catch (error) {
         lastError = error;
+
         if (attempt < 7) {
-          const backoff = Math.min(15_000, 1_000 * 2 ** attempt);
-          const jitter = Math.floor(Math.random() * 350);
+          const backoff = Math.min(
+            15_000,
+            1_000 * 2 ** attempt,
+          );
+
+          const jitter = Math.floor(
+            Math.random() * 350,
+          );
+
           await wait(backoff + jitter);
         }
       }
     }
+
     throw lastError;
   }
 
   private async getTreasuryAddress(): Promise<Address> {
     if (!this.treasuryAddress) {
-      const result = await this.client.readContract({
-        address: this.factoryAddress,
-        abi: this.factoryAbi,
-        functionName: "treasury",
-      });
-      if (typeof result !== "string" || !isAddress(result))
-        throw new Error("Factory returned an invalid treasury address");
+      const result =
+        await this.client.readContract({
+          address: this.factoryAddress,
+          abi: this.factoryAbi,
+          functionName: "treasury",
+        });
+
+      if (
+        typeof result !== "string" ||
+        !isAddress(result)
+      ) {
+        throw new Error(
+          `${this.name}: factory returned an invalid treasury address`,
+        );
+      }
+
       this.treasuryAddress = result;
     }
+
     return this.treasuryAddress;
   }
 
-  private decode(log: Log, blockTimestamp: Date): IndexedLog {
+  private decode(
+    log: Log,
+    blockTimestamp: Date,
+  ): IndexedLog {
     const base = {
-      transactionHash: log.transactionHash as Hex,
+      transactionHash:
+        log.transactionHash as Hex,
       logIndex: log.logIndex as number,
-      blockNumber: log.blockNumber as bigint,
+      blockNumber:
+        log.blockNumber as bigint,
       blockHash: log.blockHash as Hex,
       address: log.address,
       blockTimestamp,
     };
+
     for (const abi of [
       this.factoryAbi,
       this.pairAbi,
@@ -209,12 +356,18 @@ export class BlockchainSourceService {
       this.dexPoolAbi,
     ]) {
       try {
-        const decoded = decodeEventLog({
-          abi,
-          data: log.data,
-          topics: log.topics,
-        }) as unknown as { eventName: string; args: unknown };
+        const decoded =
+          decodeEventLog({
+            abi,
+            data: log.data,
+            topics: log.topics,
+          }) as unknown as {
+            eventName: string;
+            args: unknown;
+          };
+
         const args = decoded.args as Args;
+
         switch (decoded.eventName) {
           case "TokenCreated":
             return {
@@ -225,6 +378,7 @@ export class BlockchainSourceService {
                 { eventName: "TokenCreated" }
               >["args"],
             };
+
           case "Buy":
             return {
               ...base,
@@ -234,6 +388,7 @@ export class BlockchainSourceService {
                 { eventName: "Buy" }
               >["args"],
             };
+
           case "Sell":
             return {
               ...base,
@@ -243,6 +398,7 @@ export class BlockchainSourceService {
                 { eventName: "Sell" }
               >["args"],
             };
+
           case "Swap":
             return {
               ...base,
@@ -252,6 +408,7 @@ export class BlockchainSourceService {
                 { eventName: "DexSwap" }
               >["args"],
             };
+
           case "FeeCollected":
             return {
               ...base,
@@ -261,6 +418,7 @@ export class BlockchainSourceService {
                 { eventName: "FeeCollected" }
               >["args"],
             };
+
           case "Graduated":
             return {
               ...base,
@@ -275,8 +433,11 @@ export class BlockchainSourceService {
         continue;
       }
     }
+
     throw new Error(
-      `Unable to decode log ${String(log.transactionHash)}:${String(log.logIndex)}`,
+      `${this.name}: unable to decode log ${String(
+        log.transactionHash,
+      )}:${String(log.logIndex)}`,
     );
   }
 }

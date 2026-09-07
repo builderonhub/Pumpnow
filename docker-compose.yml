@@ -81,20 +81,37 @@ services:
       context: .
       dockerfile: docker/indexer.Dockerfile
     restart: unless-stopped
-    env_file: .env
+    env_file:
+      - .env
+      - .env.testnet
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/pumpnow
       REDIS_URL: redis://redis:6379
       CORS_ORIGINS: ${CORS_ORIGINS}
+
+      # Arc
       RPC_URL: ${RPC_URL}
-      CHAIN_ID: ${CHAIN_ID:-31337}
+      CHAIN_ID: ${CHAIN_ID}
       PUMP_FACTORY_ADDRESS: ${PUMP_FACTORY_ADDRESS}
-      INDEXER_START_BLOCK: ${INDEXER_START_BLOCK:-0}
+      INDEXER_START_BLOCK: ${INDEXER_START_BLOCK}
       INDEXER_CONFIRMATIONS: ${INDEXER_CONFIRMATIONS:-0}
-    ports: ["127.0.0.1:3002:3002"]
+
+      # OPN
+      OPN_TESTNET_RPC_URL: ${OPN_TESTNET_RPC_URL}
+      OPN_CHAIN_ID: ${OPN_CHAIN_ID}
+      OPN_CHAIN_NAME: ${OPN_CHAIN_NAME}
+      OPN_NATIVE_SYMBOL: ${OPN_NATIVE_SYMBOL}
+      OPN_PUMP_FACTORY_ADDRESS: ${OPN_PUMP_FACTORY_ADDRESS}
+      OPN_DEX_ADAPTER_ADDRESS: ${OPN_DEX_ADAPTER_ADDRESS}
+      OPN_PUMP_DEX_FACTORY_ADDRESS: ${OPN_PUMP_DEX_FACTORY_ADDRESS}
+      OPN_INDEXER_START_BLOCK: ${OPN_INDEXER_START_BLOCK}
+    ports:
+      - "127.0.0.1:3002:3002"
     depends_on:
-      migrate: { condition: service_completed_successfully }
-      redis: { condition: service_healthy }
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3002/health"]
       interval: 10s

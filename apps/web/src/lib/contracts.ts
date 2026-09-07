@@ -1,36 +1,95 @@
-import { defineChain, isAddress, type Address } from "viem";
+import { defineChain, type Address } from "viem";
 
-const chainId = Number(process.env.NEXT_PUBLIC_CHAIN_ID);
-const rpcUrls = (process.env.NEXT_PUBLIC_RPC_URLS ?? process.env.NEXT_PUBLIC_RPC_URL ?? "")
-  .split(",")
-  .map((value) => value.trim())
-  .filter(Boolean);
-const factoryAddressValue = process.env.NEXT_PUBLIC_PUMP_FACTORY_ADDRESS;
-export const blockExplorerUrl = process.env.NEXT_PUBLIC_BLOCK_EXPLORER_URL?.replace(/\/$/, "");
+export const arcTestnet = defineChain({
+  id: 5042002,
+  name: "Arc Testnet",
+  nativeCurrency: {
+    name: "USDC",
+    symbol: "USDC",
+    decimals: 18,
+  },
+  rpcUrls: {
+    default: {
+      http: ["https://rpc.testnet.arc.network"],
+    },
+  },
+  blockExplorers: {
+    default: {
+      name: "Arcscan",
+      url: "https://testnet.arcscan.app",
+    },
+  },
+});
 
-export const chainConfigError =
-  !Number.isSafeInteger(chainId) || chainId <= 0
-    ? "NEXT_PUBLIC_CHAIN_ID must be a positive integer"
-    : rpcUrls.length === 0
-      ? "NEXT_PUBLIC_RPC_URLS or NEXT_PUBLIC_RPC_URL is missing"
-      : !factoryAddressValue || !isAddress(factoryAddressValue)
-        ? "NEXT_PUBLIC_PUMP_FACTORY_ADDRESS is invalid"
-        : null;
+export const opnTestnet = defineChain({
+  id: 984,
+  name: "OPN Testnet",
+  nativeCurrency: {
+    name: "OPN",
+    symbol: "OPN",
+    decimals: 18,
+  },
+  rpcUrls: {
+    default: {
+      http: ["https://testnet-rpc.iopn.tech"],
+    },
+  },
+  blockExplorers: {
+    default: {
+      name: "OPN Explorer",
+      url: "https://testnet.iopn.tech",
+    },
+  },
+});
+
+export const pumpNowChains = {
+  [arcTestnet.id]: arcTestnet,
+  [opnTestnet.id]: opnTestnet,
+} as const;
+
+export const pumpFactoryAddresses = {
+  [arcTestnet.id]:
+    "0x832c135903f0BbdB4d4ea24170a5AC79F570aB68",
+  [opnTestnet.id]:
+    "0x6CA6457fcFBcE13f53780e6b38B4BE6F171b7657",
+} as const satisfies Record<number, Address>;
+
+export const blockExplorerUrls = {
+  [arcTestnet.id]: "https://testnet.arcscan.app",
+  [opnTestnet.id]: "https://testnet.iopn.tech",
+} as const;
+
+export function getPumpFactoryAddress(
+  chainId: number,
+): Address | undefined {
+  return pumpFactoryAddresses[
+    chainId as keyof typeof pumpFactoryAddresses
+  ];
+}
+
+export function getBlockExplorerUrl(
+  chainId: number,
+): string | undefined {
+  return blockExplorerUrls[
+    chainId as keyof typeof blockExplorerUrls
+  ];
+}
+
+/*
+ * Compatibility exports.
+ *
+ * Tạm giữ để các component cũ không bị lỗi
+ * trong quá trình chuyển sang dual-chain.
+ */
+export const pumpNowChain = arcTestnet;
 
 export const pumpFactoryAddress =
-  factoryAddressValue && isAddress(factoryAddressValue)
-    ? (factoryAddressValue as Address)
-    : undefined;
+  pumpFactoryAddresses[arcTestnet.id];
 
-export const pumpNowChain = defineChain({
-  id: Number.isSafeInteger(chainId) && chainId > 0 ? chainId : 31337,
-  name: process.env.NEXT_PUBLIC_CHAIN_NAME ?? "PumpNow Local",
-  nativeCurrency: { name: "Native", symbol: process.env.NEXT_PUBLIC_NATIVE_SYMBOL ?? "ETH", decimals: 18 },
-  rpcUrls: { default: { http: rpcUrls.length > 0 ? rpcUrls : ["http://127.0.0.1:8545"] } },
-  blockExplorers: process.env.NEXT_PUBLIC_BLOCK_EXPLORER_URL
-    ? { default: { name: "Arcscan", url: process.env.NEXT_PUBLIC_BLOCK_EXPLORER_URL } }
-    : undefined,
-});
+export const blockExplorerUrl =
+  blockExplorerUrls[arcTestnet.id];
+
+export const chainConfigError = null;
 
 export const pumpFactoryAbi = [
   { type: "function", name: "createToken", stateMutability: "nonpayable", inputs: [{ name: "name", type: "string" }, { name: "symbol", type: "string" }, { name: "initialSupply", type: "uint256" }, { name: "description", type: "string" }, { name: "imageUrl", type: "string" }, { name: "websiteUrl", type: "string" }, { name: "xUrl", type: "string" }, { name: "telegramUrl", type: "string" }], outputs: [{ name: "tokenAddress", type: "address" }, { name: "pairAddress", type: "address" }] },

@@ -10,16 +10,22 @@ import { ListCandlesDto } from './dto/list-candles.dto';
 @Controller('tokens')
 export class TokensController {
   constructor(private readonly tokens: TokensService) {}
-  @Get() @ApiOperation({ summary: 'List indexed tokens' }) list(
-    @Query() query: ListTokensDto,
-  ) {
+
+  @Get()
+  @ApiOperation({ summary: 'List indexed tokens' })
+  list(@Query() query: ListTokensDto) {
     return this.tokens.list(query);
   }
-  @Get(':address') @ApiOperation({ summary: 'Get token details' }) findOne(
+
+  @Get(':address')
+  @ApiOperation({ summary: 'Get token details' })
+  findOne(
     @Param() params: AddressParamDto,
+    @Query('chainId') chainId?: number,
   ) {
-    return this.tokens.findOne(params.address);
+    return this.tokens.findOne(params.address, chainId);
   }
+
   @Get(':address/trades')
   @ApiOperation({ summary: 'List token trades' })
   trades(
@@ -28,6 +34,7 @@ export class TokensController {
   ) {
     return this.tokens.trades(params.address, query);
   }
+
   @Get(':address/holders')
   @ApiOperation({ summary: 'List token holders' })
   holders(
@@ -36,9 +43,13 @@ export class TokensController {
   ) {
     return this.tokens.holders(params.address, query);
   }
+
   @Get(':address/candles')
   @ApiOperation({ summary: 'Get token OHLCV candles' })
-  candles(@Param() params: AddressParamDto, @Query() query: ListCandlesDto) {
+  candles(
+    @Param() params: AddressParamDto,
+    @Query() query: ListCandlesDto,
+  ) {
     return this.tokens.candles(params.address, query);
   }
 }

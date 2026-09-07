@@ -12,12 +12,40 @@ async function request<T>(path: string): Promise<T> {
 }
 
 export const api = {
-  tokens: (sort: TokenSort, limit = 12, status?: TokenStatus) => request<Paginated<TokenSummary>>(`/api/tokens?sort=${sort}&page=1&limit=${limit}${status ? `&status=${status}` : ""}`),
-  token: (address: string) => request<TokenDetail>(`/api/tokens/${address}`),
-  trades: (address: string) => request<Paginated<Trade>>(`/api/tokens/${address}/trades?page=1&limit=20`),
-  holders: (address: string) => request<Paginated<Holder>>(`/api/tokens/${address}/holders?page=1&limit=20`),
+  tokens: (sort: TokenSort, limit = 12, status?: TokenStatus) => {
+    const apiSort = sort === "top-volume" ? "top_volume" : sort;
+    return request<Paginated<TokenSummary>>(
+      `/api/tokens?sort=${apiSort}&page=1&limit=${limit}${
+        status ? `&status=${status}` : ""
+      }`,
+    );
+  },
+  token: (address: string, chainId: number) =>
+  request<TokenDetail>(`/api/tokens/${address}?chainId=${chainId}`),
+
+trades: (address: string, chainId: number) =>
+  request<Paginated<Trade>>(
+    `/api/tokens/${address}/trades?page=1&limit=20&chainId=${chainId}`,
+  ),
+
+holders: (address: string, chainId: number) =>
+  request<Paginated<Holder>>(
+    `/api/tokens/${address}/holders?page=1&limit=20&chainId=${chainId}`,
+  ),
+
+candles: (
+  address: string,
+  interval: CandleInterval,
+  limit = 500,
+  chainId?: number,
+) =>
+  request<Candle[]>(
+    `/api/tokens/${address}/candles?interval=${interval}&limit=${limit}${
+      chainId ? `&chainId=${chainId}` : ""
+    }`,
+  ),
+  
   search: (query: string) => request<Paginated<TokenSummary>>(`/api/search?q=${encodeURIComponent(query)}&page=1&limit=24`),
   stats: () => request<PlatformStats>("/api/stats/platform"),
-  candles: (address: string, interval: CandleInterval, limit = 500) => request<Candle[]>(`/api/tokens/${address}/candles?interval=${interval}&limit=${limit}`),
-  portfolio: (address: string) => request<Portfolio>(`/api/wallets/${address}/portfolio`),
+   portfolio: (address: string) => request<Portfolio>(`/api/wallets/${address}/portfolio`),
 };

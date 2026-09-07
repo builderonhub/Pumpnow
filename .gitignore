@@ -39,3 +39,6 @@ Thumbs.db
 
 .vercel
 .env.opn.testnet
+
+*.tsbuildinfo
+tsconfig.resolved.json

@@ -4,40 +4,35 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { WagmiProvider, createConfig, fallback, http } from "wagmi";
 import { injected } from "wagmi/connectors";
 import { useState, type ReactNode } from "react";
-import { arcTestnet, opnTestnet } from "@/lib/contracts";
+import { arcMainnet, arcTestnet, opnTestnet } from "@/lib/contracts";
 import { RealtimeSync } from "@/components/realtime-sync";
 
+
 const wagmiConfig = createConfig({
-  chains: [arcTestnet, opnTestnet],
-
+  chains: [arcMainnet, arcTestnet, opnTestnet],
   connectors: [injected()],
-
   transports: {
-    [arcTestnet.id]: fallback(
+    [arcMainnet.id]: fallback(
       [
-        http("https://rpc.testnet.arc.network", {
-          retryCount: 3,
-          retryDelay: 500,
-        }),
-        http("/api/rpc", {
-          retryCount: 3,
-          retryDelay: 500,
-        }),
+        http("https://rpc.mainnet.arc.io", { retryCount: 3, retryDelay: 500 }),
+        http("https://rpc.arc-scan.org", { retryCount: 3, retryDelay: 500 }),
       ],
       { rank: true },
     ),
-
+    [arcTestnet.id]: fallback(
+      [
+        http("https://rpc.testnet.arc.network", { retryCount: 3, retryDelay: 500 }),
+        http("/api/rpc", { retryCount: 3, retryDelay: 500 }),
+      ],
+      { rank: true },
+    ),
     [opnTestnet.id]: fallback(
       [
-        http("https://testnet-rpc.iopn.tech", {
-          retryCount: 3,
-          retryDelay: 500,
-        }),
+        http("https://testnet-rpc.iopn.tech", { retryCount: 3, retryDelay: 500 }),
       ],
       { rank: true },
     ),
   },
-
   ssr: true,
 });
 

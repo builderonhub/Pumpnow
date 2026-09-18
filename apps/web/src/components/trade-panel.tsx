@@ -19,7 +19,7 @@ import {
 } from "wagmi";
 import {
   arcTestnet,
-  opnTestnet,
+  getPumpNowChain,
   erc20Abi,
   pumpPairAbi,
 } from "@/lib/contracts";
@@ -72,12 +72,7 @@ export function TradePanel({
   const queryClient = useQueryClient();
   const write = useWriteContract();
 
-  const currentChain =
-    chainId === arcTestnet.id
-      ? arcTestnet
-      : chainId === opnTestnet.id
-        ? opnTestnet
-        : undefined;
+  const currentChain = getPumpNowChain(chainId);
 
   const publicClient = usePublicClient({
     chainId: currentChain?.id ?? arcTestnet.id,

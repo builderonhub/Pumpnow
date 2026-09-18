@@ -23,6 +23,14 @@ const arcIndexerConfig: BlockchainSourceConfig = {
   startBlockEnv: "INDEXER_START_BLOCK",
 };
 
+const arcMainnetIndexerConfig: BlockchainSourceConfig = {
+  name: "arc-mainnet",
+  chainId: 5042n,
+  rpcUrls: ["https://rpc.mainnet.arc.io", "https://rpc.arc-scan.org"],
+  factoryAddress: "0x266FB467eCaD723B031aa6F85752c4BFb59CD38f",
+  startBlockEnv: "ARC_MAINNET_INDEXER_START_BLOCK",
+};
+
 const opnIndexerConfig: BlockchainSourceConfig = {
   name: "opn",
   chainId: 984n,
@@ -38,20 +46,19 @@ const opnIndexerConfig: BlockchainSourceConfig = {
     {
       provide: createBlockchainSourceToken("arc"),
       useFactory: (abiLoader: AbiLoader) =>
-        new BlockchainSourceService(
-          arcIndexerConfig,
-          abiLoader,
-        ),
+        new BlockchainSourceService(arcIndexerConfig, abiLoader),
       inject: [AbiLoader],
     },
-
+    {
+      provide: createBlockchainSourceToken("arc-mainnet"),
+      useFactory: (abiLoader: AbiLoader) =>
+        new BlockchainSourceService(arcMainnetIndexerConfig, abiLoader),
+      inject: [AbiLoader],
+    },
     {
       provide: createBlockchainSourceToken("opn"),
       useFactory: (abiLoader: AbiLoader) =>
-        new BlockchainSourceService(
-          opnIndexerConfig,
-          abiLoader,
-        ),
+        new BlockchainSourceService(opnIndexerConfig, abiLoader),
       inject: [AbiLoader],
     },
 
@@ -71,18 +78,10 @@ const opnIndexerConfig: BlockchainSourceConfig = {
         lock: RedisLockService,
         logger: StructuredLogger,
       ) =>
-        new IndexerRunnerService(
-          config,
-          prisma,
-          source,
-          processor,
-          lock,
-          logger,
-          {
-            name: "arc",
-            startBlockEnv: "INDEXER_START_BLOCK",
-          },
-        ),
+        new IndexerRunnerService(config, prisma, source, processor, lock, logger, {
+          name: "arc",
+          startBlockEnv: "INDEXER_START_BLOCK",
+        }),
       inject: [
         ConfigService,
         PrismaService,
@@ -92,7 +91,29 @@ const opnIndexerConfig: BlockchainSourceConfig = {
         StructuredLogger,
       ],
     },
-
+    {
+      provide: createIndexerRunnerToken("arc-mainnet"),
+      useFactory: (
+        config: ConfigService,
+        prisma: PrismaService,
+        source: BlockchainSourceService,
+        processor: EventProcessorService,
+        lock: RedisLockService,
+        logger: StructuredLogger,
+      ) =>
+        new IndexerRunnerService(config, prisma, source, processor, lock, logger, {
+          name: "arc-mainnet",
+          startBlockEnv: "ARC_MAINNET_INDEXER_START_BLOCK",
+        }),
+      inject: [
+        ConfigService,
+        PrismaService,
+        createBlockchainSourceToken("arc-mainnet"),
+        EventProcessorService,
+        RedisLockService,
+        StructuredLogger,
+      ],
+    },
     {
       provide: createIndexerRunnerToken("opn"),
       useFactory: (
@@ -103,18 +124,10 @@ const opnIndexerConfig: BlockchainSourceConfig = {
         lock: RedisLockService,
         logger: StructuredLogger,
       ) =>
-        new IndexerRunnerService(
-          config,
-          prisma,
-          source,
-          processor,
-          lock,
-          logger,
-          {
-            name: "opn",
-            startBlockEnv: "OPN_INDEXER_START_BLOCK",
-          },
-        ),
+        new IndexerRunnerService(config, prisma, source, processor, lock, logger, {
+          name: "opn",
+          startBlockEnv: "OPN_INDEXER_START_BLOCK",
+        }),
       inject: [
         ConfigService,
         PrismaService,
@@ -128,6 +141,7 @@ const opnIndexerConfig: BlockchainSourceConfig = {
 
   exports: [
     createIndexerRunnerToken("arc"),
+    createIndexerRunnerToken("arc-mainnet"),
     createIndexerRunnerToken("opn"),
   ],
 })

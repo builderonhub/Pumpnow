@@ -1,5 +1,28 @@
 import { defineChain, type Address } from "viem";
 
+export const arcMainnet = defineChain({
+  id: 5042,
+  name: "Arc Mainnet",
+  nativeCurrency: {
+    name: "USDC",
+    symbol: "USDC",
+    decimals: 18,
+  },
+  rpcUrls: {
+    default: {
+      http: ["https://rpc.mainnet.arc.io", "https://rpc.arc-scan.org"],
+    },
+  },
+  blockExplorers: {
+    default: {
+      name: "Arc Explorer",
+      url: "https://explorer.arc.io",
+    },
+  },
+});
+
+
+
 export const arcTestnet = defineChain({
   id: 5042002,
   name: "Arc Testnet",
@@ -43,18 +66,19 @@ export const opnTestnet = defineChain({
 });
 
 export const pumpNowChains = {
+  [arcMainnet.id]: arcMainnet,
   [arcTestnet.id]: arcTestnet,
   [opnTestnet.id]: opnTestnet,
 } as const;
 
 export const pumpFactoryAddresses = {
-  [arcTestnet.id]:
-    "0x832c135903f0BbdB4d4ea24170a5AC79F570aB68",
-  [opnTestnet.id]:
-    "0x6CA6457fcFBcE13f53780e6b38B4BE6F171b7657",
+  [arcMainnet.id]: "0x266FB467eCaD723B031aa6F85752c4BFb59CD38f",
+  [arcTestnet.id]: "0x832c135903f0BbdB4d4ea24170a5AC79F570aB68",
+  [opnTestnet.id]: "0x6CA6457fcFBcE13f53780e6b38B4BE6F171b7657",
 } as const satisfies Record<number, Address>;
 
 export const blockExplorerUrls = {
+  [arcMainnet.id]: "https://explorer.arc.io",
   [arcTestnet.id]: "https://testnet.arcscan.app",
   [opnTestnet.id]: "https://testnet.iopn.tech",
 } as const;
@@ -73,6 +97,11 @@ export function getBlockExplorerUrl(
   return blockExplorerUrls[
     chainId as keyof typeof blockExplorerUrls
   ];
+}
+
+export function getPumpNowChain(chainId: number | undefined) {
+  if (!chainId) return undefined;
+  return pumpNowChains[chainId as keyof typeof pumpNowChains];
 }
 
 /*

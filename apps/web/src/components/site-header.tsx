@@ -6,7 +6,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useChainId } from "wagmi";
 import { WalletButton } from "./wallet-button";
 import { NetworkSwitcher } from "./network-switcher";
-import { arcTestnet, opnTestnet } from "@/lib/contracts";
+import { getPumpNowChain } from "@/lib/contracts";
 
 export function SiteHeader() {
   const [query, setQuery] = useState("");
@@ -14,11 +14,7 @@ export function SiteHeader() {
   const chainId = useChainId();
 
   const networkName =
-    chainId === opnTestnet.id
-      ? "OPN Testnet"
-      : chainId === arcTestnet.id
-        ? "Arc Testnet"
-        : "an unsupported network";
+    getPumpNowChain(chainId)?.name ?? "an unsupported network";
 
   useEffect(() => {
     if (query.trim().length < 2) return;

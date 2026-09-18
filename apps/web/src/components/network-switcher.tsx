@@ -1,9 +1,9 @@
 "use client";
 
 import { useAccount, useChainId, useSwitchChain } from "wagmi";
-import { arcTestnet, opnTestnet } from "@/lib/contracts";
+import { arcMainnet, arcTestnet, opnTestnet } from "@/lib/contracts";
 
-const CHAINS = [arcTestnet, opnTestnet] as const;
+const CHAINS = [arcMainnet, arcTestnet, opnTestnet] as const;
 
 export function NetworkSwitcher({
   variant = "header",

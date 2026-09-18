@@ -14,7 +14,7 @@ import { StatePanel } from "@/components/states";
 import { TradePanel } from "@/components/trade-panel";
 import { PriceChart } from "@/components/price-chart";
 import { DexSwapPanel } from "@/components/dex-swap-panel";
-import { blockExplorerUrls, arcTestnet, opnTestnet } from "@/lib/contracts";
+import { blockExplorerUrls, arcMainnet, arcTestnet, opnTestnet } from "@/lib/contracts";
 
 export default function TokenPage() {
   const address = String(useParams<{ address: string }>().address).toLowerCase();
@@ -51,10 +51,12 @@ export default function TokenPage() {
         <StatePanel
           title="Token not found"
           message={
-            chainId === opnTestnet.id
-              ? "This token may live on Arc Testnet. Switch network in the header."
-              : "It may not be indexed yet, or the address is invalid."
-          }
+              chainId === arcMainnet.id
+                ? "Token is on-chain but not indexed yet. Indexer must watch Arc Mainnet factory 0x266F…D38f from block 21438699."
+                : chainId === opnTestnet.id
+                  ? "This token may live on another network. Switch in the header."
+                  : "It may not be indexed yet, or the address is invalid."
+            }
         />
       </section>
     );

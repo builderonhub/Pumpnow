@@ -11,9 +11,11 @@ import {
 } from "wagmi";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  arcMainnet,
   arcTestnet,
   opnTestnet,
   getPumpFactoryAddress,
+  getPumpNowChain,
   pumpFactoryAbi,
 } from "@/lib/contracts";
 import { TransactionStatus } from "@/components/transaction-status";
@@ -44,12 +46,7 @@ export default function LaunchPage() {
   const { switchChain, isPending: switching } = useSwitchChain();
   const queryClient = useQueryClient();
 
-  const currentChain =
-    chainId === arcTestnet.id
-      ? arcTestnet
-      : chainId === opnTestnet.id
-        ? opnTestnet
-        : undefined;
+  const currentChain = getPumpNowChain(chainId);
 
   const factoryAddress = chainId
   ? getPumpFactoryAddress(chainId)
@@ -78,7 +75,11 @@ export default function LaunchPage() {
     }
 
     if (!currentChain || !factoryAddress) {
-      setValidationError("Please switch to Arc Testnet or OPN Testnet.");
+      setValidationError(
+        factoryAddress
+          ? "Switch to Arc Mainnet, Arc Testnet, or OPN Testnet."
+          : "No PumpFactory on this network yet. Deploy factory, then add the address in contracts.ts.",
+      );
       return;
     }
 
@@ -401,7 +402,7 @@ export default function LaunchPage() {
             {!isConnected
               ? "Connect your wallet to launch a token."
               : unsupportedChain
-                ? "Switch to Arc Testnet or OPN Testnet before launching."
+                ? "Switch to a supported network, or deploy PumpFactory on Arc Mainnet first."
                 : `Launching on ${currentChainName}. Your wallet will ask you to confirm the factory transaction.`}
           </p>
 
